@@ -1,0 +1,11 @@
+RewriteEngine On
+
+# Route /api/* to PHP backend
+RewriteCond %{REQUEST_URI} ^/api/
+RewriteRule ^api/(.*)$ backend/api.php [QSA,L,E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+# Serve built frontend assets
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_URI} !^/api/
+RewriteRule ^(.*)$ dist/index.html [L]

@@ -1,5 +1,7 @@
 # CM-IMAP
 
+[![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
+
 A self-hosted, multi-user web email client built on IMAP/SMTP. Manage multiple email accounts from a single interface, with full threading, HTML composition, attachment support, a rules engine, and date-range autoreplies — all running on a standard LAMP stack with no external SaaS dependencies.
 
 ---
@@ -573,3 +575,13 @@ Check the cron job exists and that `www-data` can execute PHP:
 cat /etc/cron.d/cm-imap
 sudo -u www-data php /path/to/cm-imap/backend/cron/sync.php
 ```
+
+---
+
+## License
+
+Copyright (c) 2026 Simon Rundell.
+
+This project is licensed under the [Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License](https://creativecommons.org/licenses/by-nc-sa/4.0/).
+
+You are free to share and adapt this work for non-commercial purposes, provided you give appropriate credit and distribute any derivatives under the same license. See [LICENSE](LICENSE) for the full terms.

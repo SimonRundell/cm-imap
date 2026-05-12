@@ -44,11 +44,14 @@ function AccountSection({ account, folders, isExpanded, onToggle }) {
 
   return (
     <div className="mb-1">
-      {/* Account header */}
-      <button
+      {/* Account header — div instead of button to allow the sync button child */}
+      <div
+        role="button"
+        tabIndex={0}
         onClick={onToggle}
+        onKeyDown={(e) => e.key === 'Enter' || e.key === ' ' ? onToggle() : undefined}
         className="flex items-center justify-between w-full px-3 py-2 rounded-lg text-left
-                   hover:bg-slate-700/50 group transition-colors"
+                   hover:bg-slate-700/50 group transition-colors cursor-pointer select-none"
       >
         <div className="flex items-center gap-2 min-w-0">
           <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold text-white shrink-0">
@@ -78,7 +81,7 @@ function AccountSection({ account, folders, isExpanded, onToggle }) {
             <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
           </svg>
         </div>
-      </button>
+      </div>
 
       {/* Folders */}
       {isExpanded && (

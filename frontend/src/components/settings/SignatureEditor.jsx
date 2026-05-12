@@ -1,3 +1,11 @@
+/**
+ * @module components/settings/SignatureEditor
+ * @fileoverview Settings panel for managing HTML email signatures.
+ *
+ * Each signature has a name, an optional account binding, a default flag,
+ * and rich HTML content edited via a self-hosted TinyMCE instance.
+ * The panel lists existing signatures with a live HTML preview strip.
+ */
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Editor } from '@tinymce/tinymce-react';
@@ -15,6 +23,17 @@ const TINYMCE_INIT = {
   branding: false, statusbar: false, resize: false,
 };
 
+/**
+ * Signature create/edit form. Renders a name field, an optional account
+ * selector, a TinyMCE HTML editor, and a default-signature checkbox.
+ * @param {object} props
+ * @param {object|null}       props.initial  - Existing signature data for edit mode, or null for create.
+ * @param {object[]}          props.accounts - List of accounts to populate the binding selector.
+ * @param {function(object): void} props.onSave   - Called with the signature payload on submit.
+ * @param {function(): void}  props.onCancel - Called when the user cancels.
+ * @param {boolean}           props.loading  - When true, the save button shows a saving state.
+ * @returns {React.ReactElement}
+ */
 function SigForm({ initial, accounts, onSave, onCancel, loading }) {
   const [name,      setName]      = useState(initial?.name || '');
   const [html,      setHtml]      = useState(initial?.html_content || '');
@@ -64,6 +83,11 @@ function SigForm({ initial, accounts, onSave, onCancel, loading }) {
   );
 }
 
+/**
+ * Email signatures management panel. Lists existing signatures with a
+ * rendered preview and exposes create/edit/delete actions.
+ * @returns {React.ReactElement}
+ */
 export default function SignatureEditor() {
   const qc       = useQueryClient();
   const addToast = useUIStore(s => s.addToast);

@@ -1,7 +1,19 @@
+/**
+ * @module components/inbox/MessageItem
+ * @fileoverview Single row in the message list.
+ */
 import { smartDate, formatAddress, getInitials } from '@/utils/email';
 import useEmailStore from '@/store/emailStore';
 import { useUpdateMessage } from '@/hooks/useMessages';
 
+/**
+ * Small coloured dot indicating message priority.
+ * Renders a red dot for high priority (1–2), a grey dot for low priority (4–5),
+ * and nothing for normal priority (3).
+ * @param {object} props
+ * @param {number} props.priority - IMAP priority value (1–5).
+ * @returns {React.ReactElement|null}
+ */
 const PriorityDot = ({ priority }) => {
   if (priority === 1 || priority === 2)
     return <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" title="High priority" />;
@@ -10,6 +22,18 @@ const PriorityDot = ({ priority }) => {
   return null;
 };
 
+/**
+ * A single row in the message list showing sender avatar, name, subject,
+ * date, priority indicator, attachment icon, and colour-coded labels.
+ * Reveals star and read-toggle action buttons on row hover.
+ * @param {object} props
+ * @param {object}   props.message    - Message object from the API (id, from_name, from_address,
+ *                                      subject, date, is_read, is_starred, has_attachments,
+ *                                      priority, labels).
+ * @param {boolean}  props.isSelected - True when this row is the currently open message.
+ * @param {function(): void} props.onClick - Callback invoked when the row is clicked.
+ * @returns {React.ReactElement}
+ */
 export default function MessageItem({ message, isSelected, onClick }) {
   const updateMsg = useUpdateMessage();
 

@@ -1,12 +1,31 @@
 <?php
 
+/**
+ * Handles CRUD operations for email accounts and per-account sync/test actions.
+ *
+ * Each email account stores encrypted IMAP and SMTP credentials. Passwords are
+ * never returned to the client; only metadata and connection settings are exposed.
+ *
+ * @package CM-IMAP\Controllers
+ */
 class AccountController {
+    /** @var Encryption Encryption service for storing and reading account passwords */
     private Encryption $enc;
 
+    /**
+     * Initialise the controller with an Encryption instance.
+     */
     public function __construct() {
         $this->enc = new Encryption();
     }
 
+    /**
+     * List all email accounts belonging to the authenticated user.
+     *
+     * Returns account metadata and connection settings; password fields are excluded.
+     *
+     * @return void
+     */
     public function index(): void {
         $user     = Middleware::requireAuth();
         $accounts = Database::fetchAll(
@@ -19,6 +38,14 @@ class AccountController {
         Response::success($accounts);
     }
 
+    /**
+     * Create a new email account for the authenticated user.
+     *
+     * Validates all required fields, encrypts IMAP and SMTP passwords before storage,
+     * and returns the new account's ID, display name, and email address.
+     *
+     * @return void
+     */
     public function store(): void {
         $user = Middleware::requireAuth();
         $body = $this->getBody();
@@ -59,6 +86,15 @@ class AccountController {
         Response::success($account, 'Account added', 201);
     }
 
+    /**
+     * Update an existing email account owned by the authenticated user.
+     *
+     * Only fields present in the request body are updated. Passwords are
+     * re-encrypted if provided. Ownership is verified before any changes are made.
+     *
+     * @param  int $id Account primary key.
+     * @return void
+     */
     public function update(int $id): void {
         $user    = Middleware::requireAuth();
         $account = Middleware::requireAccountOwnership($id, $user['sub']);
@@ -99,6 +135,15 @@ class AccountController {
         Response::success(null, 'Account updated');
     }
 
+    /**
+     * Delete an email account and all its associated data.
+     *
+     * Ownership is verified before deletion. Cascading deletes are handled
+     * by the database foreign key constraints.
+     *
+     * @param  int $id Account primary key.
+     * @return void
+     */
     public function destroy(int $id): void {
         $user = Middleware::requireAuth();
         Middleware::requireAccountOwnership($id, $user['sub']);
@@ -106,6 +151,16 @@ class AccountController {
         Response::success(null, 'Account deleted');
     }
 
+    /**
+     * Test connectivity for an account's IMAP or SMTP server.
+     *
+     * For IMAP: opens a full authenticated connection and disconnects.
+     * For SMTP: performs a socket-level connection test only (no authentication or send).
+     * The type is specified via `{"type": "imap"}` or `{"type": "smtp"}` in the request body.
+     *
+     * @param  int $id Account primary key.
+     * @return void
+     */
     public function testConnection(int $id): void {
         $user    = Middleware::requireAuth();
         $account = Middleware::requireAccountOwnership($id, $user['sub']);
@@ -138,6 +193,15 @@ class AccountController {
         }
     }
 
+    /**
+     * Trigger an on-demand sync for a single account.
+     *
+     * The account must be active. Delegates to {@see SyncService::syncAccount()}
+     * and returns the sync statistics on success.
+     *
+     * @param  int $id Account primary key.
+     * @return void
+     */
     public function sync(int $id): void {
         $user    = Middleware::requireAuth();
         $account = Middleware::requireAccountOwnership($id, $user['sub']);
@@ -155,6 +219,11 @@ class AccountController {
         }
     }
 
+    /**
+     * Decode the JSON request body.
+     *
+     * @return array<string, mixed>
+     */
     private function getBody(): array {
         return json_decode(file_get_contents('php://input'), true) ?? [];
     }

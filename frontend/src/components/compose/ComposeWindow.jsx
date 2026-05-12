@@ -1,3 +1,13 @@
+/**
+ * @module components/compose/ComposeWindow
+ * @fileoverview Floating compose window for new messages, replies, and forwards.
+ *
+ * Rendered as a fixed overlay at the bottom-right of the viewport. Supports
+ * minimise/restore, Cc/Bcc field toggles, file attachment uploads with
+ * progress tracking, HTML editing via a self-hosted TinyMCE instance, and
+ * signature injection/switching. Pre-populates To, subject, and quoted body
+ * from emailStore when opened in reply/forward mode.
+ */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Editor } from '@tinymce/tinymce-react';
 import useEmailStore from '@/store/emailStore';
@@ -30,6 +40,12 @@ const TINYMCE_INIT = {
   automatic_uploads:   false,
 };
 
+/**
+ * Floating compose window component. Reads compose state (mode, original
+ * message, account) from emailStore and manages all local form state. Does
+ * not accept props — all configuration is passed through the store.
+ * @returns {React.ReactElement}
+ */
 export default function ComposeWindow() {
   const { composeMode, composeMessage, composeAccountId, closeCompose } = useEmailStore();
   const user        = useAuthStore(s => s.user);

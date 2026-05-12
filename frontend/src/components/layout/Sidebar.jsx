@@ -1,3 +1,12 @@
+/**
+ * @module components/layout/Sidebar
+ * @fileoverview Left navigation sidebar with compose button, unified inbox
+ * shortcut, and per-account folder trees.
+ *
+ * Renders nothing when the sidebar is collapsed (uiStore.sidebarCollapsed).
+ * Each account section is independently expandable and shows folder unread
+ * counts. A hover-revealed sync button triggers an immediate IMAP sync.
+ */
 import { useState } from 'react';
 import useEmailStore from '@/store/emailStore';
 import useUIStore    from '@/store/uiStore';
@@ -15,6 +24,13 @@ const SPECIAL_ICONS = {
   default: 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z',
 };
 
+/**
+ * Renders an inline SVG icon that corresponds to a folder's special-use type.
+ * Falls back to a generic folder icon for non-special folders.
+ * @param {object} props
+ * @param {string|null} props.special - Special-use type key (e.g. "inbox", "sent", "trash").
+ * @returns {React.ReactElement}
+ */
 function FolderIcon({ special }) {
   const path = SPECIAL_ICONS[special] || SPECIAL_ICONS.default;
   return (
@@ -24,6 +40,18 @@ function FolderIcon({ special }) {
   );
 }
 
+/**
+ * Collapsible sidebar section for a single email account.
+ * Shows the account avatar, display name, aggregate inbox unread badge, an
+ * on-hover sync button, and the expand/collapse chevron. When expanded, lists
+ * all subscribed folders sorted by special-use order then alphabetically.
+ * @param {object} props
+ * @param {object} props.account    - Account object (id, email_address, display_name).
+ * @param {object[]} props.folders  - All folders across all accounts; filtered internally by account_id.
+ * @param {boolean} props.isExpanded - Whether this account's folder list is visible.
+ * @param {function(): void} props.onToggle - Callback to toggle expanded state.
+ * @returns {React.ReactElement}
+ */
 function AccountSection({ account, folders, isExpanded, onToggle }) {
   const selectedFolderId  = useEmailStore(s => s.selectedFolderId);
   const selectedAccountId = useEmailStore(s => s.selectedAccountId);
@@ -113,6 +141,12 @@ function AccountSection({ account, folders, isExpanded, onToggle }) {
   );
 }
 
+/**
+ * Main application sidebar component.
+ * Returns null when the sidebar is collapsed. Otherwise renders the compose
+ * button, the unified-inbox shortcut, and an AccountSection for each account.
+ * @returns {React.ReactElement|null}
+ */
 export default function Sidebar() {
   const collapsed         = useUIStore(s => s.sidebarCollapsed);
   const setUnified        = useEmailStore(s => s.setUnifiedInbox);

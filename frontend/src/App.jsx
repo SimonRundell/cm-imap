@@ -1,3 +1,14 @@
+/**
+ * @module App
+ * @fileoverview Root application component. Sets up the TanStack Query client,
+ * React Router, and the two route guard helpers, then declares all top-level routes:
+ *
+ * - /login, /register  — public, redirect to / when already authenticated
+ * - /                  — protected; renders AppLayout with InboxPage as the index
+ * - /settings          — protected; renders SettingsPage inside AppLayout
+ * - /admin             — protected; renders AdminPage inside AppLayout
+ * - *                  — catch-all redirect to /
+ */
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import AppLayout   from '@/components/layout/AppLayout';
@@ -18,18 +29,36 @@ const queryClient = new QueryClient({
   },
 });
 
+/**
+ * Route guard that redirects unauthenticated visitors to /login.
+ * @param {object} props
+ * @param {React.ReactNode} props.children - The route element to render when authenticated.
+ * @returns {React.ReactNode}
+ */
 function RequireAuth({ children }) {
   const isAuth = useAuthStore(s => s.isAuthenticated());
   if (!isAuth) return <Navigate to="/login" replace />;
   return children;
 }
 
+/**
+ * Route guard that redirects already-authenticated users away from
+ * public-only routes (login, register) back to the inbox.
+ * @param {object} props
+ * @param {React.ReactNode} props.children - The route element to render when not authenticated.
+ * @returns {React.ReactNode}
+ */
 function RequireGuest({ children }) {
   const isAuth = useAuthStore(s => s.isAuthenticated());
   if (isAuth) return <Navigate to="/" replace />;
   return children;
 }
 
+/**
+ * Root application component.
+ * Provides the TanStack Query context and React Router, then renders the route tree.
+ * @returns {React.ReactElement}
+ */
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>

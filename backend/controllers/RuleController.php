@@ -1,6 +1,23 @@
 <?php
 
+/**
+ * Manages filtering rules for email accounts.
+ *
+ * Each rule has a name, condition logic (AND/OR), an ordered list of conditions,
+ * and a list of actions. Rules are stored across three tables: `rules`,
+ * `rule_conditions`, and `rule_actions`. Store and update operations use
+ * database transactions to keep the three tables consistent.
+ *
+ * @package CM-IMAP\Controllers
+ */
 class RuleController {
+    /**
+     * List all rules for an account, including their conditions and actions.
+     *
+     * Requires `account_id` query parameter.
+     *
+     * @return void
+     */
     public function index(): void {
         $user      = Middleware::requireAuth();
         $accountId = (int)($_GET['account_id'] ?? 0);
@@ -26,6 +43,14 @@ class RuleController {
         Response::success($rules);
     }
 
+    /**
+     * Create a new rule with its conditions and actions.
+     *
+     * At least one condition and one action are required. The entire operation
+     * is wrapped in a transaction; on failure, changes are rolled back.
+     *
+     * @return void
+     */
     public function store(): void {
         $user = Middleware::requireAuth();
         $body = $this->body();
@@ -67,6 +92,15 @@ class RuleController {
         Response::success($rule, 'Rule created', 201);
     }
 
+    /**
+     * Update a rule's metadata and optionally replace its conditions and/or actions.
+     *
+     * Conditions and actions are fully replaced when provided (delete + re-insert).
+     * The update runs inside a transaction.
+     *
+     * @param  int $id Rule primary key.
+     * @return void
+     */
     public function update(int $id): void {
         $user = Middleware::requireAuth();
         $rule = $this->ownerRule($id, $user['sub']);
@@ -103,6 +137,12 @@ class RuleController {
         Response::success($this->loadRule($id), 'Rule updated');
     }
 
+    /**
+     * Delete a rule and its conditions and actions (cascaded by the database).
+     *
+     * @param  int $id Rule primary key.
+     * @return void
+     */
     public function destroy(int $id): void {
         $user = Middleware::requireAuth();
         $this->ownerRule($id, $user['sub']);
@@ -112,6 +152,15 @@ class RuleController {
 
     // ----------------------------------------------------------------
 
+    /**
+     * Insert validated condition rows for a rule.
+     *
+     * Conditions with unknown field names or operators are silently skipped.
+     *
+     * @param  int                              $ruleId     Parent rule ID.
+     * @param  array<int, array<string, mixed>> $conditions Array of condition definitions.
+     * @return void
+     */
     private function saveConditions(int $ruleId, array $conditions): void {
         $validFields = ['from_address','from_name','to','cc','subject','body','has_attachment'];
         $validOps    = ['contains','not_contains','starts_with','ends_with','equals','not_equals'];
@@ -127,6 +176,15 @@ class RuleController {
         }
     }
 
+    /**
+     * Insert validated action rows for a rule.
+     *
+     * Actions with unknown types are silently skipped.
+     *
+     * @param  int                              $ruleId  Parent rule ID.
+     * @param  array<int, array<string, mixed>> $actions Array of action definitions.
+     * @return void
+     */
     private function saveActions(int $ruleId, array $actions): void {
         $validTypes = ['move_to_folder','add_label','mark_read','mark_starred','set_priority',
                        'delete','move_to_spam','autoreply'];
@@ -141,6 +199,12 @@ class RuleController {
         }
     }
 
+    /**
+     * Load a rule row along with its conditions and actions from the database.
+     *
+     * @param  int $id Rule primary key.
+     * @return array<string, mixed> Rule row with `conditions` and `actions` sub-arrays.
+     */
     private function loadRule(int $id): array {
         $rule = Database::fetchOne('SELECT * FROM rules WHERE id = ?', [$id]);
         $rule['conditions'] = Database::fetchAll('SELECT * FROM rule_conditions WHERE rule_id = ?', [$id]);
@@ -148,6 +212,16 @@ class RuleController {
         return $rule;
     }
 
+    /**
+     * Fetch a rule row and verify it belongs to an account owned by the user.
+     *
+     * Responds with 404 and exits if the rule does not exist or the user
+     * does not own the parent account.
+     *
+     * @param  int $id     Rule primary key.
+     * @param  int $userId Authenticated user ID.
+     * @return array<string, mixed> The rules row.
+     */
     private function ownerRule(int $id, int $userId): array {
         $rule = Database::fetchOne(
             'SELECT r.* FROM rules r JOIN email_accounts a ON r.account_id = a.id
@@ -158,6 +232,11 @@ class RuleController {
         return $rule;
     }
 
+    /**
+     * Decode the JSON request body.
+     *
+     * @return array<string, mixed>
+     */
     private function body(): array {
         return json_decode(file_get_contents('php://input'), true) ?? [];
     }

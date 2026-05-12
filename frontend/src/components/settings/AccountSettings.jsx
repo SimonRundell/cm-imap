@@ -1,3 +1,12 @@
+/**
+ * @module components/settings/AccountSettings
+ * @fileoverview Settings panel for managing IMAP/SMTP email accounts.
+ *
+ * Lists all accounts belonging to the user with status badges, server info,
+ * last-sync time, and sync error display. Provides inline forms to add or
+ * edit an account (IMAP + SMTP fields), and buttons to test connectivity,
+ * manually sync, and delete each account.
+ */
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getAccounts, createAccount, updateAccount, deleteAccount, testAccount, syncAccount } from '@/api/accounts';
@@ -10,6 +19,17 @@ const EMPTY_FORM = {
   smtp_host: '', smtp_port: 587, smtp_encryption: 'starttls', smtp_username: '', smtp_password: '',
 };
 
+/**
+ * Controlled form for creating or editing an IMAP/SMTP account.
+ * Renders display name, email address, and separate IMAP and SMTP sections
+ * with host, port, encryption, username and password fields.
+ * @param {object} props
+ * @param {object|null}       props.initial  - Existing account data to pre-populate (edit mode), or null for create mode.
+ * @param {function(object): void} props.onSave   - Called with the form data when the user submits.
+ * @param {function(): void}  props.onCancel - Called when the user cancels.
+ * @param {boolean}           props.loading  - When true, the submit button shows a saving state.
+ * @returns {React.ReactElement}
+ */
 function AccountForm({ initial, onSave, onCancel, loading }) {
   const [form, setForm] = useState(initial || EMPTY_FORM);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -103,6 +123,11 @@ function AccountForm({ initial, onSave, onCancel, loading }) {
   );
 }
 
+/**
+ * Email accounts settings panel. Manages create/edit/delete/test/sync
+ * interactions with full toast feedback and query cache invalidation.
+ * @returns {React.ReactElement}
+ */
 export default function AccountSettings() {
   const qc       = useQueryClient();
   const addToast = useUIStore(s => s.addToast);

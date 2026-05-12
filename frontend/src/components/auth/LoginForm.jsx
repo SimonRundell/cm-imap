@@ -1,8 +1,18 @@
+/**
+ * @module components/auth/LoginForm
+ * @fileoverview Full-page login form component.
+ */
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { login } from '@/api/auth';
 import useAuthStore from '@/store/authStore';
 
+/**
+ * Full-page login form. Submits credentials to the auth API, stores the
+ * returned token pair via authStore, then redirects to the inbox.
+ * Displays an inline error message on failed authentication.
+ * @returns {React.ReactElement}
+ */
 export default function LoginForm() {
   const navigate  = useNavigate();
   const setAuth   = useAuthStore(s => s.setAuth);

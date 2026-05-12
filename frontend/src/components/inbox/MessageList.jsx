@@ -1,3 +1,10 @@
+/**
+ * @module components/inbox/MessageList
+ * @fileoverview Scrollable, paginated list of messages for the active folder or search.
+ *
+ * Builds query params from emailStore selection and renders a MessageItem for
+ * each result. Includes a manual sync button and simple prev/next pagination.
+ */
 import { useState, useCallback } from 'react';
 import MessageItem from './MessageItem';
 import useEmailStore from '@/store/emailStore';
@@ -5,6 +12,12 @@ import { useMessages } from '@/hooks/useMessages';
 import { useQueryClient } from '@tanstack/react-query';
 import { syncAccount as apiSync } from '@/api/accounts';
 
+/**
+ * Message list panel. Reads the current folder/account/search selection from
+ * emailStore, fetches messages via useMessages, and renders them as MessageItem
+ * rows. Handles sync (single account or all accounts) and pagination.
+ * @returns {React.ReactElement}
+ */
 export default function MessageList() {
   const [page, setPage] = useState(1);
 

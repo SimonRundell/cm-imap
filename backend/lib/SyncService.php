@@ -1,10 +1,32 @@
 <?php
 
+/**
+ * Orchestrates incremental IMAP synchronisation for email accounts.
+ *
+ * For each active account, SyncService:
+ * 1. Connects via IMAPClient and refreshes the folder list.
+ * 2. For each subscribed, selectable folder, fetches UIDs newer than the last
+ *    known `uidnext`, handling UIDVALIDITY resets by wiping and re-syncing.
+ * 3. Persists new messages and their attachments to the database/disk.
+ * 4. Resolves thread membership via In-Reply-To, References, and subject matching.
+ * 5. Passes each stored message through RulesEngine.
+ * 6. Sends account-level autoreplies for new inbox messages when enabled.
+ *
+ * @package CM-IMAP\Lib
+ */
 class SyncService {
+    /** @var Encryption Encryption service used to decrypt IMAP/SMTP credentials */
     private Encryption  $enc;
+
+    /** @var RulesEngine Rules engine instance applied to every newly stored message */
     private RulesEngine $rules;
+
+    /** @var string Filesystem path where attachment files are stored */
     private string      $attachmentPath;
 
+    /**
+     * Initialise the service with its dependencies and load the attachment path from settings.
+     */
     public function __construct() {
         $this->enc            = new Encryption();
         $this->rules          = new RulesEngine();
@@ -15,6 +37,18 @@ class SyncService {
     // Public: sync a single account
     // ----------------------------------------------------------------
 
+    /**
+     * Perform a full incremental sync for one email account.
+     *
+     * Connects to the IMAP server, refreshes folders, syncs new messages in
+     * every subscribed folder, updates the account's `last_sync` timestamp,
+     * and triggers autoreply processing. On connection failure, the error is
+     * persisted to `email_accounts.sync_error` before re-throwing.
+     *
+     * @param  array<string, mixed> $account email_accounts row.
+     * @return array{folders: int, new_messages: int, errors: string[]} Sync statistics.
+     * @throws RuntimeException If the initial IMAP connection fails.
+     */
     public function syncAccount(array $account): array {
         $stats = ['folders' => 0, 'new_messages' => 0, 'errors' => []];
 
@@ -70,6 +104,17 @@ class SyncService {
     // Folder sync
     // ----------------------------------------------------------------
 
+    /**
+     * Refresh the local folder list from the IMAP server.
+     *
+     * New folders are inserted; existing folders have their `special_use`
+     * updated only when the detected value is non-empty and the current
+     * stored value is empty (to avoid overwriting user customisation).
+     *
+     * @param  IMAPClient           $imap    Connected IMAP client.
+     * @param  array<string, mixed> $account email_accounts row.
+     * @return void
+     */
     private function syncFolders(IMAPClient $imap, array $account): void {
         $remoteFolders = $imap->listFolders();
         $existing = Database::fetchAll(
@@ -100,6 +145,18 @@ class SyncService {
     // Message sync for a single folder
     // ----------------------------------------------------------------
 
+    /**
+     * Sync new messages for a single folder.
+     *
+     * Checks UIDVALIDITY; if it has changed since the last sync, all locally
+     * stored messages for the folder are deleted and a full re-sync is performed.
+     * Otherwise only UIDs greater than the stored `uidnext` are fetched.
+     *
+     * @param  IMAPClient           $imap    Connected IMAP client.
+     * @param  array<string, mixed> $account email_accounts row.
+     * @param  array<string, mixed> $folder  folders row.
+     * @return int Number of new messages stored.
+     */
     private function syncFolder(IMAPClient $imap, array $account, array $folder): int {
         $imap->selectFolder($folder['full_path']);
 
@@ -167,6 +224,19 @@ class SyncService {
     // Store a single message
     // ----------------------------------------------------------------
 
+    /**
+     * Persist a fetched message to the database and trigger post-storage processing.
+     *
+     * Resolves the thread, inserts the message row, stores attachment files,
+     * updates thread counters, and runs the rules engine. Returns the new
+     * message primary key, or null if the insert fails.
+     *
+     * @param  array<string, mixed> $msg     Parsed message data from {@see IMAPClient::fetchMessage()}.
+     * @param  array<string, mixed> $account email_accounts row.
+     * @param  array<string, mixed> $folder  folders row.
+     * @param  IMAPClient           $imap    Connected client (used to fetch attachment bytes).
+     * @return int|null New message ID, or null on failure.
+     */
     private function storeMessage(array $msg, array $account, array $folder, IMAPClient $imap): ?int {
         $threadId = $this->resolveThread($msg, $account);
 
@@ -224,6 +294,19 @@ class SyncService {
     // Thread resolution
     // ----------------------------------------------------------------
 
+    /**
+     * Find or create the thread that a message belongs to.
+     *
+     * Resolution order:
+     * 1. In-Reply-To header → find the parent message's thread.
+     * 2. References header → search each referenced message ID (most recent first).
+     * 3. Normalised subject match within the last 7 days.
+     * 4. Create a new thread.
+     *
+     * @param  array<string, mixed> $msg     Parsed message data.
+     * @param  array<string, mixed> $account email_accounts row.
+     * @return int|null Thread ID, or null if a new thread could not be created.
+     */
     private function resolveThread(array $msg, array $account): ?int {
         // 1. Match by In-Reply-To → find parent message → use its thread
         if (!empty($msg['in_reply_to'])) {
@@ -269,6 +352,14 @@ class SyncService {
         return (int)Database::lastInsertId();
     }
 
+    /**
+     * Strip reply/forward prefixes and normalise whitespace for subject-based thread matching.
+     *
+     * Removes leading Re:, Fwd:, Fw:, Aw:, Rv:, Sv: (and variants), then lower-cases.
+     *
+     * @param  string $subject Raw message subject.
+     * @return string Normalised subject string.
+     */
     private function normalizeSubject(string $subject): string {
         // Remove Re:, Fwd:, Fw:, Aw:, etc. and normalize whitespace
         $s = preg_replace('/^(re|fwd?|aw|rv|sv):\s*/i', '', trim($subject));
@@ -280,6 +371,21 @@ class SyncService {
     // Attachment storage
     // ----------------------------------------------------------------
 
+    /**
+     * Fetch attachment bytes from IMAP and write them to the filesystem and database.
+     *
+     * Files are stored under `$attachmentPath/<bucket>/`, where the bucket is
+     * `floor($messageId / 1000)` to avoid large directories. Filenames are
+     * sanitised before writing. Each attachment is recorded in the `attachments` table.
+     *
+     * Individual attachment failures are logged but do not abort the loop.
+     *
+     * @param  array<int, array<string, mixed>> $attachments Attachment metadata from {@see IMAPClient::fetchMessage()}.
+     * @param  int                              $messageId   Primary key of the parent message.
+     * @param  int                              $uid         IMAP UID of the parent message.
+     * @param  IMAPClient                       $imap        Connected client for fetching bytes.
+     * @return void
+     */
     private function storeAttachments(array $attachments, int $messageId, int $uid, IMAPClient $imap): void {
         $dir = rtrim($this->attachmentPath, '/') . '/' . floor($messageId / 1000);
         if (!is_dir($dir)) {
@@ -317,6 +423,17 @@ class SyncService {
     // Autoreply processing
     // ----------------------------------------------------------------
 
+    /**
+     * Send account-level autoreplies for recent unread inbox messages.
+     *
+     * Only runs when the account has an enabled autoreply within its active date
+     * range. Queries for unread inbox messages created in the last 10 minutes,
+     * skipping messages sent by the account itself or no-reply addresses. Deduplicates
+     * using the `autoreply_sent` table (one reply per sender per account lifetime).
+     *
+     * @param  array<string, mixed> $account email_accounts row.
+     * @return void
+     */
     private function processAutoreplies(array $account): void {
         $ar = Database::fetchOne(
             'SELECT * FROM autoreplies WHERE account_id = ? AND is_enabled = 1',
@@ -378,11 +495,26 @@ class SyncService {
     // Helpers
     // ----------------------------------------------------------------
 
+    /**
+     * Extract the leaf (final) segment of a folder path.
+     *
+     * Handles both `/` and `.` as separators, as well as backslashes.
+     *
+     * @param  string $path Full folder path.
+     * @return string Folder display name.
+     */
     private function folderBasename(string $path): string {
         $parts = explode('/', str_replace(['\\', '.'], '/', $path));
         return end($parts) ?: $path;
     }
 
+    /**
+     * Infer a folder's special use (inbox, sent, drafts, trash, spam, archive)
+     * from its path using common naming patterns.
+     *
+     * @param  string $path Folder full path.
+     * @return string Special use key, or empty string if unrecognised.
+     */
     private function detectSpecialUse(string $path): string {
         $lower = strtolower($path);
         if (preg_match('/\b(inbox)\b/i', $lower))            return 'inbox';

@@ -4,16 +4,37 @@
  * Pure-PHP SMTP client (no external dependencies).
  * Supports: plain TCP, SSL, STARTTLS, AUTH LOGIN, AUTH PLAIN.
  * Handles: multipart/alternative, multipart/related (inline images), multipart/mixed (attachments).
+ *
+ * @package CM-IMAP\Lib
  */
 class SMTPClient {
+    /** @var mixed TCP/SSL socket resource, or null when not connected */
     private mixed  $socket = null;
+
+    /** @var string SMTP server hostname */
     private string $host;
+
+    /** @var int SMTP server port */
     private int    $port;
+
+    /** @var string Encryption type: 'ssl', 'starttls', or 'none' */
     private string $encryption;
+
+    /** @var string SMTP login username */
     private string $username;
+
+    /** @var string Decrypted SMTP password */
     private string $password;
+
+    /** @var int Socket read/write timeout in seconds */
     private int    $timeout = 30;
 
+    /**
+     * Decrypt and store SMTP credentials from an email_accounts row.
+     *
+     * @param array<string, mixed> $account email_accounts row.
+     * @param Encryption           $enc     Encryption service for decrypting the stored password.
+     */
     public function __construct(array $account, Encryption $enc) {
         $this->host       = $account['smtp_host'];
         $this->port       = (int)$account['smtp_port'];
@@ -22,6 +43,28 @@ class SMTPClient {
         $this->password   = $enc->decrypt($account['smtp_password_enc'], $account['smtp_password_iv']);
     }
 
+    /**
+     * Connect, authenticate, and send one email message.
+     *
+     * Builds the full MIME message, issues MAIL FROM / RCPT TO / DATA commands,
+     * and closes the connection cleanly with QUIT.
+     *
+     * @param  array<string, mixed> $mail {
+     *     @type array          $from           Sender address: {name, email}.
+     *     @type array[]        $to             Primary recipients: [{name, email}, ...].
+     *     @type array[]        $cc             CC recipients (optional).
+     *     @type array[]        $bcc            BCC recipients (optional).
+     *     @type string         $subject        Message subject.
+     *     @type string         $body_text      Plain-text body.
+     *     @type string         $body_html      HTML body.
+     *     @type string|null    $in_reply_to    Message-ID of the message being replied to.
+     *     @type array|null     $reply_to       Reply-To address: {name, email}.
+     *     @type array[]        $attachments    File attachments: [{filename, mime_type, data}, ...].
+     *     @type array[]        $inline_images  Inline images: [{filename, mime_type, content_id, data}, ...].
+     * }
+     * @return void
+     * @throws RuntimeException If the SMTP server returns an unexpected reply code.
+     */
     public function send(array $mail): void {
         $this->connect();
         $this->authenticate();
@@ -52,6 +95,15 @@ class SMTPClient {
     // Connection & auth
     // ----------------------------------------------------------------
 
+    /**
+     * Open a socket to the SMTP server and perform EHLO / STARTTLS upgrade if required.
+     *
+     * SSL connections wrap the socket at connect time; STARTTLS upgrades the plain
+     * socket after the initial EHLO exchange.
+     *
+     * @return void
+     * @throws RuntimeException If the socket cannot be opened or STARTTLS is not supported.
+     */
     private function connect(): void {
         $context = stream_context_create([
             'ssl' => [
@@ -88,6 +140,15 @@ class SMTPClient {
         }
     }
 
+    /**
+     * Authenticate with the server using AUTH LOGIN.
+     *
+     * Sends the username and password base64-encoded in separate responses
+     * to the server's 334 challenges.
+     *
+     * @return void
+     * @throws RuntimeException If the server rejects the credentials.
+     */
     private function authenticate(): void {
         // Try AUTH LOGIN
         $this->command('AUTH LOGIN', 334);
@@ -99,6 +160,17 @@ class SMTPClient {
     // MIME message builder
     // ----------------------------------------------------------------
 
+    /**
+     * Build the complete RFC 2822 message string ready to be written to the DATA stream.
+     *
+     * Constructs a MIME tree appropriate to the content:
+     * - Always: multipart/alternative wrapping text/plain + text/html.
+     * - With inline images: multipart/related wrapping the alternative part + images.
+     * - With file attachments: multipart/mixed as the outer container.
+     *
+     * @param  array<string, mixed> $mail Mail data (same structure as {@see send()}).
+     * @return string Full RFC 2822 message (headers + blank line + body), without the terminating `\r\n.\r\n`.
+     */
     private function buildMessage(array $mail): string {
         $msgId   = '<' . bin2hex(random_bytes(16)) . '@cm-imap>';
         $date    = date('r');
@@ -194,11 +266,32 @@ class SMTPClient {
     // SMTP protocol helpers
     // ----------------------------------------------------------------
 
+    /**
+     * Write a command to the socket and wait for an expected response code.
+     *
+     * @param  string     $cmd            SMTP command string (without CRLF).
+     * @param  int|int[]  $expectCode     Expected response code(s).
+     * @param  bool       $returnResponse Whether to return the full response string.
+     * @return string The server response if `$returnResponse` is true, otherwise empty string.
+     * @throws RuntimeException On unexpected response code.
+     */
     private function command(string $cmd, int|array $expectCode, bool $returnResponse = false): string {
         fwrite($this->socket, $cmd . "\r\n");
         return $this->expectCode($expectCode, $returnResponse);
     }
 
+    /**
+     * Read lines from the socket until a complete SMTP response is received,
+     * then verify the response code is among the expected codes.
+     *
+     * Multi-line responses (where the 4th character is '-') are read in full before
+     * the code is checked.
+     *
+     * @param  int|int[] $code           Acceptable response code(s).
+     * @param  bool      $returnResponse Whether to return the full response text.
+     * @return string Full response text if `$returnResponse` is true, otherwise empty string.
+     * @throws RuntimeException If the connection drops or an unexpected code is received.
+     */
     private function expectCode(int|array $code, bool $returnResponse = false): string {
         $codes    = is_array($code) ? $code : [$code];
         $response = '';
@@ -220,6 +313,12 @@ class SMTPClient {
     // Encoding helpers
     // ----------------------------------------------------------------
 
+    /**
+     * Encode a header value as RFC 2047 Base64 if it contains non-ASCII characters.
+     *
+     * @param  string $text Header value to encode.
+     * @return string ASCII-safe header string.
+     */
     private function encodeHeader(string $text): string {
         if (preg_match('/[^\x20-\x7E]/', $text)) {
             return '=?UTF-8?B?' . base64_encode($text) . '?=';
@@ -227,10 +326,26 @@ class SMTPClient {
         return $text;
     }
 
+    /**
+     * Encode a header word (e.g. attachment filename) for use in a structured header field.
+     *
+     * Delegates to {@see encodeHeader()}.
+     *
+     * @param  string $text
+     * @return string
+     */
     private function encodeHeaderWord(string $text): string {
         return $this->encodeHeader($text);
     }
 
+    /**
+     * Format a single address as "Display Name <email>" or just "email".
+     *
+     * The display name is RFC 2047-encoded if it contains non-ASCII characters.
+     *
+     * @param  array{name?: string, email: string} $addr Address array.
+     * @return string Formatted address string.
+     */
     private function formatAddress(array $addr): string {
         $email = $addr['email'];
         $name  = $addr['name'] ?? '';
@@ -240,14 +355,31 @@ class SMTPClient {
         return $email;
     }
 
+    /**
+     * Format a list of addresses as a comma-separated header value.
+     *
+     * @param  array<int, array{name?: string, email: string}> $addrs
+     * @return string
+     */
     private function formatAddressList(array $addrs): string {
         return implode(', ', array_map([$this, 'formatAddress'], $addrs));
     }
 
+    /**
+     * Encode a string using quoted-printable transfer encoding.
+     *
+     * @param  string $text UTF-8 input.
+     * @return string Quoted-printable encoded output.
+     */
     private function quotedPrintableEncode(string $text): string {
         return quoted_printable_encode($text);
     }
 
+    /**
+     * Generate a unique MIME boundary string.
+     *
+     * @return string e.g. `----=_Part_a3f2c1b0d4e5f6a7`
+     */
     private function boundary(): string {
         return '----=_Part_' . bin2hex(random_bytes(8));
     }

@@ -1,3 +1,15 @@
+/**
+ * @module api/client
+ * @fileoverview Configured Axios instance used by every API module.
+ *
+ * Responsibilities:
+ *  - Attaches the current Bearer access token to every outgoing request.
+ *  - Handles 401 responses by transparently refreshing the token pair and
+ *    retrying the original request. While a refresh is in-flight, subsequent
+ *    401s are queued and resolved once the refresh settles.
+ *  - On refresh failure (no token or server error), clears localStorage and
+ *    redirects to /login.
+ */
 import axios from 'axios';
 
 const BASE_URL = import.meta.env.VITE_API_URL || '/api';

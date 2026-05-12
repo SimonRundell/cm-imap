@@ -1,6 +1,32 @@
 <?php
 
+/**
+ * Handles message listing, retrieval, flag updates, moves, sending, and polling.
+ *
+ * All routes require authentication. Message ownership is enforced by joining
+ * through the `email_accounts` table and comparing `user_id` to `$user['sub']`.
+ *
+ * @package CM-IMAP\Controllers
+ */
 class MessageController {
+    /**
+     * List messages with filtering, pagination, and label data.
+     *
+     * Supported query parameters:
+     * - `account_id` — filter to a specific account (ownership is verified).
+     * - `folder_id`  — filter to a specific folder.
+     * - `thread_id`  — filter to a specific thread.
+     * - `unified`    — include messages from all of the user's accounts.
+     * - `search`     — full-text search across subject, from, and body_text.
+     * - `starred`    — return only starred messages.
+     * - `unread`     — return only unread messages.
+     * - `page`       — page number (default 1).
+     * - `per_page`   — results per page, 10–100 (default 50).
+     *
+     * Each message in the response includes a `labels` array and decoded `to_addresses`.
+     *
+     * @return void
+     */
     public function index(): void {
         $user      = Middleware::requireAuth();
         $accountId = isset($_GET['account_id']) ? (int)$_GET['account_id'] : null;
@@ -103,6 +129,15 @@ class MessageController {
         ]);
     }
 
+    /**
+     * Return full details of a single message including attachments and labels.
+     *
+     * Automatically marks the message as read on first open and decrements the
+     * folder's unread counter if applicable.
+     *
+     * @param  int $id Message primary key.
+     * @return void
+     */
     public function show(int $id): void {
         $user    = Middleware::requireAuth();
         $message = $this->getMessage($id, $user['sub']);
@@ -138,6 +173,15 @@ class MessageController {
         Response::success($message);
     }
 
+    /**
+     * Update message flags and/or priority.
+     *
+     * Accepted body fields: `is_read`, `is_starred`, `is_flagged` (boolean), `priority` (1–5).
+     * When `is_read` changes, the folder's unread counter is adjusted accordingly.
+     *
+     * @param  int $id Message primary key.
+     * @return void
+     */
     public function update(int $id): void {
         $user    = Middleware::requireAuth();
         $message = $this->getMessage($id, $user['sub']);
@@ -176,6 +220,16 @@ class MessageController {
         Response::success(null, 'Message updated');
     }
 
+    /**
+     * Delete a message, moving it to trash first if not already there.
+     *
+     * If a trash folder exists and the message is not already in it, the message
+     * is moved there. If already in trash (or no trash folder), the message is
+     * soft-deleted by setting `is_deleted = 1`.
+     *
+     * @param  int $id Message primary key.
+     * @return void
+     */
     public function destroy(int $id): void {
         $user    = Middleware::requireAuth();
         $message = $this->getMessage($id, $user['sub']);
@@ -198,6 +252,14 @@ class MessageController {
         Response::success(null, 'Message deleted');
     }
 
+    /**
+     * Move a message to a different folder within the same account.
+     *
+     * Adjusts folder unread counters if the message is unread.
+     *
+     * @param  int $id Message primary key.
+     * @return void — expects `{"folder_id": int}` in the request body.
+     */
     public function move(int $id): void {
         $user    = Middleware::requireAuth();
         $message = $this->getMessage($id, $user['sub']);
@@ -229,6 +291,17 @@ class MessageController {
         Response::success(null, 'Message moved');
     }
 
+    /**
+     * Compose and send an outbound message via SMTP.
+     *
+     * Resolves attachment IDs from the database, accepts base64-encoded inline
+     * images and raw attachment data, builds the MIME message, sends it, and
+     * saves a copy to the account's Sent folder in the database.
+     *
+     * @return void — expects JSON body with `account_id`, `to`, `subject`, `body_html`,
+     *               and optionally `cc`, `bcc`, `in_reply_to`, `attachment_ids`,
+     *               `inline_images`, and `new_attachments`.
+     */
     public function send(): void {
         $user = Middleware::requireAuth();
         $body = json_decode(file_get_contents('php://input'), true) ?? [];
@@ -332,6 +405,16 @@ class MessageController {
         Response::success(null, 'Message sent');
     }
 
+    /**
+     * Replace all labels on a message with a new set.
+     *
+     * The supplied label IDs are validated to ensure they belong to the same
+     * account as the message. All existing labels are removed first, then the
+     * validated set is applied.
+     *
+     * @param  int $id Message primary key.
+     * @return void — expects `{"label_ids": [int, ...]}` in the request body.
+     */
     public function updateLabels(int $id): void {
         $user    = Middleware::requireAuth();
         $message = $this->getMessage($id, $user['sub']);
@@ -360,6 +443,14 @@ class MessageController {
         Response::success(null, 'Labels updated');
     }
 
+    /**
+     * Return new unread messages created in the last N minutes for notification polling.
+     *
+     * The `since` query parameter accepts a datetime string (default: 5 minutes ago).
+     * Returns up to 20 messages with minimal fields suitable for browser notifications.
+     *
+     * @return void
+     */
     public function pollNew(): void {
         $user  = Middleware::requireAuth();
         $since = $_GET['since'] ?? date('Y-m-d H:i:s', strtotime('-5 minutes'));
@@ -380,6 +471,16 @@ class MessageController {
 
     // ----------------------------------------------------------------
 
+    /**
+     * Fetch a message row and verify it belongs to the given user.
+     *
+     * Responds with 404 if not found, or 403 if the user does not own the
+     * parent account.
+     *
+     * @param  int $id     Message primary key.
+     * @param  int $userId Authenticated user ID.
+     * @return array<string, mixed> The messages row (with `user_id` from the join).
+     */
     private function getMessage(int $id, int $userId): array {
         $msg = Database::fetchOne(
             'SELECT m.*, a.user_id FROM messages m

@@ -1,7 +1,17 @@
+/**
+ * @module components/auth/RegisterForm
+ * @fileoverview Full-page registration form component.
+ */
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { register } from '@/api/auth';
 
+/**
+ * Full-page registration form. Validates that the two password fields match
+ * client-side, then calls the register API. On success, shows a confirmation
+ * message and automatically redirects to /login after 2 seconds.
+ * @returns {React.ReactElement}
+ */
 export default function RegisterForm() {
   const navigate  = useNavigate();
   const [form, setForm]       = useState({ username: '', email: '', password: '', confirm: '' });

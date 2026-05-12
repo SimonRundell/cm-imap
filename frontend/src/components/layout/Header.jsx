@@ -1,9 +1,23 @@
+/**
+ * @module components/layout/Header
+ * @fileoverview Top application header bar.
+ *
+ * Contains: sidebar toggle button, app name, global search input, mobile
+ * compose shortcut, settings and admin navigation buttons, and the user
+ * avatar/dropdown with sign-out action.
+ */
 import { useNavigate } from 'react-router-dom';
 import useAuthStore  from '@/store/authStore';
 import useUIStore    from '@/store/uiStore';
 import useEmailStore from '@/store/emailStore';
 import { logout as apiLogout } from '@/api/auth';
 
+/**
+ * Application header bar component.
+ * Reads auth, UI and email store state to render search, navigation controls,
+ * and the user's avatar with a sign-out dropdown.
+ * @returns {React.ReactElement}
+ */
 export default function Header() {
   const navigate      = useNavigate();
   const { user, refreshToken, clearAuth } = useAuthStore();
@@ -23,6 +37,7 @@ export default function Header() {
   return (
     <header className="h-14 flex items-center gap-3 px-4 bg-surface-800 border-b border-slate-700/50 shrink-0">
       {/* Sidebar toggle */}
+      <img src="/images/cm-imap-logo.png" alt="Logo" className="w-12 h-12" />
       <button
         onClick={toggleSidebar}
         className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"

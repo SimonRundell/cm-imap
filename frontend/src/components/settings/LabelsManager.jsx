@@ -1,3 +1,10 @@
+/**
+ * @module components/settings/LabelsManager
+ * @fileoverview Settings panel for creating, editing, and deleting colour-coded message labels.
+ *
+ * Labels are per-account. The panel shows a colour-swatch picker, a name input,
+ * and a live list of existing labels with inline edit mode.
+ */
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getAccounts } from '@/api/accounts';
@@ -9,6 +16,11 @@ const PRESET_COLORS = [
   '#EC4899', '#06B6D4', '#84CC16', '#F97316', '#6B7280',
 ];
 
+/**
+ * Labels management panel. Scopes labels to the selected account and
+ * supports create, inline-edit, and delete with toast feedback.
+ * @returns {React.ReactElement}
+ */
 export default function LabelsManager() {
   const qc       = useQueryClient();
   const addToast = useUIStore(s => s.addToast);

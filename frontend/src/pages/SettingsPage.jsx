@@ -1,3 +1,12 @@
+/**
+ * @module pages/SettingsPage
+ * @fileoverview User-facing settings page with a tabbed navigation sidebar.
+ *
+ * Tabs: Accounts, Signatures, Auto-Reply, Rules, Labels. Each tab dynamically
+ * renders the corresponding settings panel component without unmounting others
+ * (the Panel variable is re-assigned on tab change, not conditionally rendered
+ * in different branches, so all panels share the same React subtree slot).
+ */
 import { useState } from 'react';
 import AccountSettings  from '@/components/settings/AccountSettings';
 import SignatureEditor  from '@/components/settings/SignatureEditor';
@@ -21,6 +30,10 @@ const PANELS = {
   labels:     LabelsManager,
 };
 
+/**
+ * Settings page with an icon sidebar for navigating between setting sections.
+ * @returns {React.ReactElement}
+ */
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState('accounts');
   const Panel = PANELS[activeTab];

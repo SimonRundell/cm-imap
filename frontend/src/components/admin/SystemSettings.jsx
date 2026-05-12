@@ -1,8 +1,21 @@
+/**
+ * @module components/admin/SystemSettings
+ * @fileoverview Admin panel for global system configuration and account sync health.
+ *
+ * Renders a settings form (app name, attachment path, max size, sync interval,
+ * session lifetime, self-registration flag) and a read-only sync-status table
+ * showing the last-sync time and any error for every account across all users.
+ */
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getSettings, updateSettings, getSyncStatus } from '@/api/admin';
 import useUIStore from '@/store/uiStore';
 
+/**
+ * System settings panel. Fetches the current settings record, populates
+ * the form, and persists updates. Also shows a live account sync-status table.
+ * @returns {React.ReactElement}
+ */
 export default function SystemSettings() {
   const qc       = useQueryClient();
   const addToast = useUIStore(s => s.addToast);

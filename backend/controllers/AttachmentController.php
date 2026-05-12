@@ -1,6 +1,21 @@
 <?php
 
+/**
+ * Handles downloading existing attachments and uploading new ones for compose.
+ *
+ * @package CM-IMAP\Controllers
+ */
 class AttachmentController {
+    /**
+     * Stream an attachment file to the browser.
+     *
+     * Verifies that the attachment belongs to an account owned by the
+     * authenticated user before sending. Supports both inline display
+     * (`?inline=1`) and forced download.
+     *
+     * @param  int $id Attachment primary key.
+     * @return void — exits after streaming the file.
+     */
     public function show(int $id): void {
         $user = Middleware::requireAuth();
 
@@ -41,7 +56,16 @@ class AttachmentController {
         exit;
     }
 
-    /** Upload a new attachment for composing (returns ID for use in send) */
+    /**
+     * Accept a multipart file upload and store it as a pending attachment.
+     *
+     * The file is saved to `<attachment_path>/uploads/<user_id>/` with a
+     * unique prefix and a sanitised filename. The attachment row is inserted
+     * with `message_id = 0` (pending), ready to be linked when a message is
+     * sent. Returns the new attachment ID and metadata.
+     *
+     * @return void
+     */
     public function upload(): void {
         $user = Middleware::requireAuth();
 

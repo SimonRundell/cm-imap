@@ -1,3 +1,12 @@
+/**
+ * @module components/common/ToastContainer
+ * @fileoverview Fixed overlay that renders the active toast notifications from uiStore.
+ *
+ * Toasts auto-dismiss after their configured duration (managed in the store).
+ * The container itself is pointer-events:none so it never blocks clicks on
+ * the content below; individual toasts re-enable pointer events so their
+ * close button works.
+ */
 import useUIStore from '@/store/uiStore';
 
 const ICONS = {
@@ -13,6 +22,11 @@ const COLORS = {
   warning: 'border-yellow-500/30 text-yellow-400',
 };
 
+/**
+ * Renders the current toast queue from uiStore as stacked notification cards
+ * anchored to the bottom-right corner of the viewport.
+ * @returns {React.ReactElement}
+ */
 export default function ToastContainer() {
   const toasts      = useUIStore(s => s.toasts);
   const removeToast = useUIStore(s => s.removeToast);

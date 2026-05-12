@@ -1,3 +1,12 @@
+/**
+ * @module components/layout/AppLayout
+ * @fileoverview Top-level authenticated layout shell.
+ *
+ * Renders the persistent Header, collapsible Sidebar, a React Router Outlet
+ * for page content, the ComposeWindow overlay (when open), and the
+ * ToastContainer. Also activates the background polling and notification
+ * permission hooks for the duration of the session.
+ */
 import { useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import Header from './Header';
@@ -8,6 +17,11 @@ import useEmailStore from '@/store/emailStore';
 import useUIStore    from '@/store/uiStore';
 import { usePolling, useRequestNotificationPermission } from '@/hooks/usePolling';
 
+/**
+ * Authenticated application shell component.
+ * Mounts the polling/notification side-effects and composes the page layout.
+ * @returns {React.ReactElement}
+ */
 export default function AppLayout() {
   usePolling();
   useRequestNotificationPermission();

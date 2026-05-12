@@ -1,9 +1,26 @@
+/**
+ * @module components/admin/UserManager
+ * @fileoverview Admin panel for managing all user accounts in the system.
+ *
+ * Displays users in a table with role badge, account count, status, and join date.
+ * Supports creating new users, editing (including password reset and role change),
+ * and deleting users — with a guard preventing self-deletion.
+ */
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getUsers, createUser, updateUser, deleteUser } from '@/api/admin';
 import useUIStore    from '@/store/uiStore';
 import useAuthStore  from '@/store/authStore';
 
+/**
+ * User create/edit form used inside the UserManager panel.
+ * @param {object} props
+ * @param {object|null}       props.initial  - Existing user data for edit mode, or null for create.
+ * @param {function(object): void} props.onSave   - Called with the form data on submit.
+ * @param {function(): void}  props.onCancel - Called when the user cancels.
+ * @param {boolean}           props.loading  - When true, the submit button shows a saving state.
+ * @returns {React.ReactElement}
+ */
 function UserForm({ initial, onSave, onCancel, loading }) {
   const [form, setForm] = useState({
     username: initial?.username || '',
@@ -53,6 +70,11 @@ function UserForm({ initial, onSave, onCancel, loading }) {
   );
 }
 
+/**
+ * System-wide user management panel. Only accessible to admins.
+ * Lists all users and provides create/edit/delete with self-deletion protection.
+ * @returns {React.ReactElement}
+ */
 export default function UserManager() {
   const qc        = useQueryClient();
   const addToast  = useUIStore(s => s.addToast);

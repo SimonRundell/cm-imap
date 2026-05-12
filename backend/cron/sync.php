@@ -1,12 +1,26 @@
 <?php
 /**
  * Cron job: sync all active email accounts.
- * Run via crontab: */5 * * * * /usr/bin/php /path/to/cm-imap/backend/cron/sync.php >> /var/log/cm-imap-sync.log 2>&1
+ *
+ * Iterates over every active email account and runs an incremental IMAP sync
+ * via SyncService. Results are written to stdout so they can be captured in a
+ * log file when run from crontab.
+ *
+ * A file-based mutex (`/tmp/cm-imap-sync.lock`) prevents overlapping runs;
+ * if a sync is already in progress the script exits immediately with a warning.
+ *
+ * Run via crontab every 5 minutes, redirecting output to a log file.
+ *
+ * @package CM-IMAP\Cron
  */
 
 define('ROOT', dirname(__DIR__));
 
-// Auto-load
+/**
+ * Auto-load library and controller classes from lib/ and controllers/.
+ *
+ * @param string $class Class name to resolve.
+ */
 spl_autoload_register(function (string $class): void {
     $paths = [ROOT . '/lib/', ROOT . '/controllers/'];
     foreach ($paths as $path) {
@@ -15,7 +29,10 @@ spl_autoload_register(function (string $class): void {
     }
 });
 
+/** @var string $lock Path to the process lock file */
 $lock = sys_get_temp_dir() . '/cm-imap-sync.lock';
+
+/** @var resource $fp Lock file handle */
 $fp   = fopen($lock, 'c');
 if (!flock($fp, LOCK_EX | LOCK_NB)) {
     echo date('[Y-m-d H:i:s]') . " Sync already running, skipping.\n";
@@ -30,6 +47,8 @@ try {
     );
 
     $svc   = new SyncService();
+
+    /** @var array{accounts: int, new_messages: int, errors: int} $total Aggregate stats across all accounts */
     $total = ['accounts' => 0, 'new_messages' => 0, 'errors' => 0];
 
     foreach ($accounts as $account) {

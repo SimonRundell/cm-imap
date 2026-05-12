@@ -1,6 +1,20 @@
 <?php
 
+/**
+ * Manages IMAP folder listings, subscriptions, and server-side folder creation.
+ *
+ * @package CM-IMAP\Controllers
+ */
 class FolderController {
+    /**
+     * List folders for one or all of the authenticated user's accounts.
+     *
+     * If `account_id` is provided as a query parameter, ownership is verified and
+     * folders for that account are returned. Otherwise all folders across all the
+     * user's accounts are returned, ordered by account then special-use/path.
+     *
+     * @return void
+     */
     public function index(): void {
         $user      = Middleware::requireAuth();
         $accountId = (int)($_GET['account_id'] ?? 0);
@@ -25,6 +39,15 @@ class FolderController {
         Response::success($folders);
     }
 
+    /**
+     * Sync the folder list from the IMAP server into the database.
+     *
+     * Connects to the server, retrieves all folder paths, and upserts them into
+     * the `folders` table. Returns the updated folder list for the account.
+     * Requires `account_id` as a query parameter.
+     *
+     * @return void
+     */
     public function sync(): void {
         $user      = Middleware::requireAuth();
         $accountId = (int)($_GET['account_id'] ?? 0);
@@ -58,6 +81,14 @@ class FolderController {
         }
     }
 
+    /**
+     * Update a folder's local settings (currently: subscription status).
+     *
+     * Ownership of the folder's account is verified before any change is applied.
+     *
+     * @param  int $id Folder primary key.
+     * @return void
+     */
     public function update(int $id): void {
         $user   = Middleware::requireAuth();
         $folder = Database::fetchOne('SELECT * FROM folders WHERE id = ?', [$id]);
@@ -77,6 +108,15 @@ class FolderController {
         Response::success(null, 'Folder updated');
     }
 
+    /**
+     * Create a new folder on the IMAP server and register it locally.
+     *
+     * Requires `account_id` and `name` in the request body. The folder is
+     * created on the remote server first, then inserted into the local `folders`
+     * table (IGNORE to avoid duplicates).
+     *
+     * @return void
+     */
     public function createFolder(): void {
         $user = Middleware::requireAuth();
         $body = json_decode(file_get_contents('php://input'), true) ?? [];
@@ -105,6 +145,12 @@ class FolderController {
         }
     }
 
+    /**
+     * Extract the display name (final path segment) from a full folder path.
+     *
+     * @param  string $path Folder full path (may use `/`, `.`, or `\` as separator).
+     * @return string Folder display name.
+     */
     private function basename(string $path): string {
         $parts = explode('/', str_replace(['\\', '.'], '/', $path));
         return end($parts) ?: $path;

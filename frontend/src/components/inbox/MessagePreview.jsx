@@ -1,3 +1,15 @@
+/**
+ * @module components/inbox/MessagePreview
+ * @fileoverview Full message reading pane with headers, body, and attachments.
+ *
+ * Renders a placeholder when no message is selected, a loading spinner while
+ * fetching, or the full message with action bar (reply, reply-all, forward,
+ * star, mark read, move, delete) once loaded.
+ *
+ * The HTML body is sandboxed inside an iframe for security; a toggle allows
+ * switching to the plain-text alternative. Non-inline attachments are listed
+ * as download links at the bottom.
+ */
 import { useState } from 'react';
 import { useMessage, useDeleteMessage, useUpdateMessage, useMoveMessage } from '@/hooks/useMessages';
 import useEmailStore from '@/store/emailStore';
@@ -5,6 +17,12 @@ import { fullDate, formatAddressList, formatAddress, buildReplySubject, buildRep
 import useAuthStore from '@/store/authStore';
 import { useAllFolders } from '@/hooks/useAccounts';
 
+/**
+ * Message reading pane. Derives the selected message ID from emailStore,
+ * fetches the full message, and renders headers, action bar, body, and
+ * attachments. Returns an empty-state placeholder when no message is selected.
+ * @returns {React.ReactElement}
+ */
 export default function MessagePreview() {
   const selectedId     = useEmailStore(s => s.selectedMessageId);
   const openCompose    = useEmailStore(s => s.openCompose);
@@ -213,6 +231,14 @@ export default function MessagePreview() {
   );
 }
 
+/**
+ * Small icon+label button used in the message action bar (Reply, Reply All, Forward).
+ * @param {object} props
+ * @param {'reply'|'reply_all'|'forward'} props.icon  - Key into the SVG path map.
+ * @param {string}   props.label   - Button label text.
+ * @param {function(): void} props.onClick - Click handler.
+ * @returns {React.ReactElement}
+ */
 function ActionButton({ icon, label, onClick }) {
   const paths = {
     reply:     'M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6',
@@ -233,6 +259,15 @@ function ActionButton({ icon, label, onClick }) {
   );
 }
 
+/**
+ * Dropdown menu listing selectable folders for moving a message.
+ * Calls the useMoveMessage mutation and closes itself on selection.
+ * @param {object} props
+ * @param {object[]} props.folders   - Folder objects to display (id, name).
+ * @param {number}   props.messageId - ID of the message being moved.
+ * @param {function(): void} props.onClose - Callback to dismiss the dropdown.
+ * @returns {React.ReactElement}
+ */
 function MoveMenu({ folders, messageId, onClose }) {
   const moveMsg = useMoveMessage();
   return (

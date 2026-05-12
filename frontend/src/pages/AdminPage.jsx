@@ -1,3 +1,11 @@
+/**
+ * @module pages/AdminPage
+ * @fileoverview Admin control panel page — accessible only to users with the "admin" role.
+ *
+ * Displays an access-denied message with a redirect button for non-admins.
+ * For admins, renders a sidebar-tabbed layout with a Users tab (UserManager)
+ * and a Settings tab (SystemSettings), plus a "Back to Inbox" shortcut.
+ */
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import UserManager    from '@/components/admin/UserManager';
@@ -11,6 +19,11 @@ const TABS = [
 
 const PANELS = { users: UserManager, settings: SystemSettings };
 
+/**
+ * Admin panel page. Enforces the admin role client-side (server also enforces
+ * it on every API call). Renders a two-tab layout: Users and Settings.
+ * @returns {React.ReactElement}
+ */
 export default function AdminPage() {
   const navigate   = useNavigate();
   const isAdmin    = useAuthStore(s => s.isAdmin());

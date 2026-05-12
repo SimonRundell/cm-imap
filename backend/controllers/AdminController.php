@@ -1,6 +1,18 @@
 <?php
 
+/**
+ * Admin-only endpoints for user management and application settings.
+ *
+ * Every method enforces the 'admin' role via {@see Middleware::requireAdmin()}.
+ *
+ * @package CM-IMAP\Controllers
+ */
 class AdminController {
+    /**
+     * List all users with their account counts.
+     *
+     * @return void
+     */
     public function listUsers(): void {
         Middleware::requireAdmin();
         $users = Database::fetchAll(
@@ -11,6 +23,14 @@ class AdminController {
         Response::success($users);
     }
 
+    /**
+     * Create a new user account.
+     *
+     * Validates uniqueness of username and email, hashes the password with
+     * bcrypt (cost 12), and assigns the given role (defaults to 'user').
+     *
+     * @return void
+     */
     public function createUser(): void {
         Middleware::requireAdmin();
         $body = $this->body();
@@ -42,6 +62,15 @@ class AdminController {
         Response::success(['id' => (int)Database::lastInsertId()], 'User created', 201);
     }
 
+    /**
+     * Update an existing user's profile fields.
+     *
+     * Only fields present in the request body are modified. Password is re-hashed
+     * if provided. An admin cannot change the role of a non-existent user.
+     *
+     * @param  int $id User primary key.
+     * @return void
+     */
     public function updateUser(int $id): void {
         Middleware::requireAdmin();
         $body = $this->body();
@@ -74,6 +103,15 @@ class AdminController {
         Response::success(null, 'User updated');
     }
 
+    /**
+     * Delete a user account.
+     *
+     * An admin cannot delete their own account. Cascading deletes remove all
+     * associated email accounts, messages, etc. via database foreign keys.
+     *
+     * @param  int $id User primary key.
+     * @return void
+     */
     public function deleteUser(int $id): void {
         $admin = Middleware::requireAdmin();
         if ($admin['sub'] == $id) Response::error('Cannot delete your own account');
@@ -85,6 +123,11 @@ class AdminController {
         Response::success(null, 'User deleted');
     }
 
+    /**
+     * Retrieve all application settings as a key/value map.
+     *
+     * @return void
+     */
     public function getSettings(): void {
         Middleware::requireAdmin();
         $rows = Database::fetchAll('SELECT `key`, `value` FROM settings ORDER BY `key`');
@@ -95,6 +138,14 @@ class AdminController {
         Response::success($settings);
     }
 
+    /**
+     * Update application settings.
+     *
+     * Only keys in the explicit allowlist are accepted; unknown keys are silently
+     * ignored. Uses INSERT … ON DUPLICATE KEY UPDATE for upsert behaviour.
+     *
+     * @return void
+     */
     public function updateSettings(): void {
         Middleware::requireAdmin();
         $body = $this->body();
@@ -115,6 +166,14 @@ class AdminController {
         Response::success(null, 'Settings updated');
     }
 
+    /**
+     * Return sync status for all email accounts across all users.
+     *
+     * Includes the last sync timestamp and any stored sync error per account,
+     * ordered by most recently synced first.
+     *
+     * @return void
+     */
     public function syncStatus(): void {
         Middleware::requireAdmin();
         $accounts = Database::fetchAll(
@@ -126,6 +185,11 @@ class AdminController {
         Response::success($accounts);
     }
 
+    /**
+     * Decode the JSON request body.
+     *
+     * @return array<string, mixed>
+     */
     private function body(): array {
         return json_decode(file_get_contents('php://input'), true) ?? [];
     }

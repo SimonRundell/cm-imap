@@ -1,6 +1,23 @@
 <?php
 
+/**
+ * Handles user authentication: login, registration, token refresh, logout, and profile.
+ *
+ * Tokens follow an access + refresh rotation pattern. The refresh token is stored
+ * as a SHA-256 hash in the `refresh_tokens` table; only the raw token is returned
+ * to the client and is never stored in plaintext.
+ *
+ * @package CM-IMAP\Controllers
+ */
 class AuthController {
+    /**
+     * Authenticate a user with username/email and password.
+     *
+     * On success, issues a JWT access token and a random refresh token, persists
+     * the refresh token hash, and purges any expired tokens for the user.
+     *
+     * @return void
+     */
     public function login(): void {
         $body = $this->getBody();
         $username = trim($body['username'] ?? '');
@@ -54,6 +71,14 @@ class AuthController {
         ]);
     }
 
+    /**
+     * Register a new user account if self-registration is enabled.
+     *
+     * Validates username format (3–50 alphanumeric), email, minimum password
+     * length (8 chars), and uniqueness before creating the account.
+     *
+     * @return void
+     */
     public function register(): void {
         $allowReg = Database::getSetting('allow_registration', '1');
         if (!$allowReg) {
@@ -95,6 +120,14 @@ class AuthController {
         Response::success(null, 'Registration successful', 201);
     }
 
+    /**
+     * Exchange a valid refresh token for a new access + refresh token pair.
+     *
+     * Implements refresh token rotation: the old token is deleted and a new one
+     * is issued. The user account must still be active.
+     *
+     * @return void
+     */
     public function refresh(): void {
         $body         = $this->getBody();
         $refreshToken = $body['refresh_token'] ?? '';
@@ -138,6 +171,14 @@ class AuthController {
         ]);
     }
 
+    /**
+     * Invalidate the authenticated user's current refresh token.
+     *
+     * Requires a valid access token (via Middleware) and optionally a
+     * `refresh_token` in the request body to delete from the database.
+     *
+     * @return void
+     */
     public function logout(): void {
         $user = Middleware::requireAuth();
         $body = $this->getBody();
@@ -151,6 +192,11 @@ class AuthController {
         Response::success(null, 'Logged out');
     }
 
+    /**
+     * Return the profile of the currently authenticated user.
+     *
+     * @return void
+     */
     public function me(): void {
         $user = Middleware::requireAuth();
         $row  = Database::fetchOne(
@@ -160,6 +206,11 @@ class AuthController {
         Response::success($row);
     }
 
+    /**
+     * Decode the JSON request body.
+     *
+     * @return array<string, mixed>
+     */
     private function getBody(): array {
         $raw = file_get_contents('php://input');
         return json_decode($raw, true) ?? [];

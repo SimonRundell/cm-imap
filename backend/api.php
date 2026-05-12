@@ -1,4 +1,17 @@
 <?php
+/**
+ * Single entry-point for the CM-IMAP REST API.
+ *
+ * Bootstraps the application (autoloader, CORS headers), then dispatches
+ * incoming requests through a minimal pattern-matching router. All routes
+ * are matched in declaration order; the first match wins and subsequent
+ * calls to route() are no-ops. A 404 response is emitted if no route matches.
+ *
+ * Route patterns support named parameters via `:name` syntax (e.g. `/messages/:id`).
+ * Numeric captures are automatically cast to int before being passed to the handler.
+ *
+ * @package CM-IMAP
+ */
 declare(strict_types=1);
 
 // ── Bootstrap ───────────────────────────────────────────────────────────────
@@ -6,7 +19,11 @@ define('ROOT', __DIR__);
 ini_set('display_errors', '0');
 error_reporting(E_ALL);
 
-// Auto-load library and controller classes
+/**
+ * Auto-load library and controller classes from lib/ and controllers/.
+ *
+ * @param string $class Fully-qualified (but unnamespaced) class name.
+ */
 spl_autoload_register(function (string $class): void {
     $paths = [ROOT . '/lib/', ROOT . '/controllers/'];
     foreach ($paths as $path) {
@@ -44,6 +61,18 @@ $uri = '/' . ltrim($uri, '/');
 
 // ── Route table ─────────────────────────────────────────────────────────────
 
+/**
+ * Register a route and dispatch to its handler if the method and URI match.
+ *
+ * Uses a static `$matched` flag so only the first matching route fires.
+ * Named path parameters (`:name`) are converted to named regex captures and
+ * passed as an array to the handler; numeric values are cast to int.
+ *
+ * @param  string   $routeMethod HTTP method (GET, POST, PUT, DELETE, …).
+ * @param  string   $pattern     URI pattern with optional `:param` segments.
+ * @param  callable $handler     Callback receiving `array $params` of named captures.
+ * @return void
+ */
 function route(string $routeMethod, string $pattern, callable $handler): void {
     static $matched = false;
     if ($matched) return;

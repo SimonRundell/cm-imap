@@ -1,3 +1,15 @@
+/**
+ * @module hooks/usePolling
+ * @fileoverview Background polling hooks for new-mail detection and browser notification permission.
+ *
+ * usePolling runs a TanStack Query that calls the /messages/poll endpoint every
+ * 60 seconds. When new messages are detected it fires browser Notification API
+ * alerts (capped at 3) and also pushes a toast into uiStore. A Set ref prevents
+ * the same message from triggering duplicate notifications across re-renders.
+ *
+ * useRequestNotificationPermission requests browser notification permission once
+ * when the user has notifications enabled and permission is still "default".
+ */
 import { useEffect, useRef, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { pollNewMessages } from '@/api/messages';
@@ -7,6 +19,14 @@ import useAuthStore from '@/store/authStore';
 
 const POLL_INTERVAL = 60_000; // 60 seconds
 
+/**
+ * Polls the server for new messages every 60 seconds and triggers browser
+ * notifications and toasts when previously-unseen messages arrive.
+ *
+ * This hook is designed to be called once, at the AppLayout level, while the
+ * user is authenticated. It is a no-op when the user is not authenticated.
+ * @returns {void}
+ */
 export function usePolling() {
   const isAuthenticated = useAuthStore(s => s.isAuthenticated());
   const lastPollTime    = useEmailStore(s => s.lastPollTime);
@@ -53,6 +73,12 @@ export function usePolling() {
   }, [data]);
 }
 
+/**
+ * Requests the browser's notification permission if the user has notifications
+ * enabled in uiStore and the permission is currently "default" (not yet decided).
+ * Safe to call on every render — the browser only ever shows the prompt once.
+ * @returns {void}
+ */
 export function useRequestNotificationPermission() {
   const notifications = useUIStore(s => s.notifications);
 

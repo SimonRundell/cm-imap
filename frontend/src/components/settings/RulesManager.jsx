@@ -1,3 +1,11 @@
+/**
+ * @module components/settings/RulesManager
+ * @fileoverview Settings panel for creating and managing email processing rules.
+ *
+ * Rules consist of one or more conditions (field/operator/value triples) combined
+ * with AND/OR logic, plus one or more actions (move, label, mark read, etc.).
+ * The RuleForm component handles both create and edit modes.
+ */
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getAccounts } from '@/api/accounts';
@@ -36,6 +44,19 @@ const ACTION_TYPES = [
 const newCondition = () => ({ field: 'from_address', operator: 'contains', value: '' });
 const newAction    = () => ({ action_type: 'mark_read', action_value: '' });
 
+/**
+ * Rule create/edit form. Manages local state for conditions and actions and
+ * builds the rule payload for the parent to persist.
+ * @param {object} props
+ * @param {object|null}       props.initial   - Existing rule data for edit mode, or null for create.
+ * @param {number}            props.accountId - Account this rule belongs to.
+ * @param {object[]}          props.folders   - All folders (used to populate the "move to folder" action select).
+ * @param {object[]}          props.labels    - All labels for the selected account.
+ * @param {function(object): void} props.onSave    - Called with the complete rule payload on submit.
+ * @param {function(): void}  props.onCancel  - Called when the user cancels.
+ * @param {boolean}           props.loading   - When true, the save button shows a saving state.
+ * @returns {React.ReactElement}
+ */
 function RuleForm({ initial, accountId, folders, labels, onSave, onCancel, loading }) {
   const [name,     setName]     = useState(initial?.name || '');
   const [logic,    setLogic]    = useState(initial?.condition_logic || 'AND');
@@ -157,6 +178,11 @@ function RuleForm({ initial, accountId, folders, labels, onSave, onCancel, loadi
   );
 }
 
+/**
+ * Email rules management panel. Fetches rules, folders and labels for the
+ * selected account and orchestrates create/update/delete with toast feedback.
+ * @returns {React.ReactElement}
+ */
 export default function RulesManager() {
   const qc       = useQueryClient();
   const addToast = useUIStore(s => s.addToast);

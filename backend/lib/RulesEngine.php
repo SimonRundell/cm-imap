@@ -1,9 +1,27 @@
 <?php
 
+/**
+ * Evaluates per-account filtering rules against incoming messages and executes
+ * the configured actions (move, label, flag, delete, autoreply, etc.).
+ *
+ * Rules are fetched from the `rules` table in priority order. Each rule has a
+ * set of conditions joined by AND or OR logic, and one or more actions to run
+ * when the conditions match. A rule with `stop_processing = 1` halts further
+ * rule evaluation once it fires.
+ *
+ * @package CM-IMAP\Lib
+ */
 class RulesEngine {
     /**
-     * Apply all enabled rules for an account to a message.
-     * Returns list of actions taken.
+     * Apply all enabled rules for an account to a single message.
+     *
+     * Fetches rules ordered by priority, evaluates each rule's conditions against
+     * the message, and executes matching actions. Updates `messages.rules_applied`
+     * if any action was taken.
+     *
+     * @param  array<string, mixed> $message Message row from the `messages` table.
+     * @param  array<string, mixed> $account email_accounts row for the owning account.
+     * @return string[] List of action descriptors taken (e.g. `"moved_to:INBOX.Archive"`, `"label:Work"`).
      */
     public function apply(array $message, array $account): array {
         $rules = Database::fetchAll(
@@ -50,6 +68,14 @@ class RulesEngine {
     // Condition evaluation
     // ----------------------------------------------------------------
 
+    /**
+     * Evaluate a set of conditions using AND or OR logic.
+     *
+     * @param  array<int, array<string, mixed>> $conditions Rows from `rule_conditions`.
+     * @param  string                           $logic      'AND' or 'OR'.
+     * @param  array<string, mixed>             $message    Message row.
+     * @return bool
+     */
     private function evaluateConditions(array $conditions, string $logic, array $message): bool {
         $results = [];
         foreach ($conditions as $cond) {
@@ -63,6 +89,16 @@ class RulesEngine {
         }
     }
 
+    /**
+     * Evaluate a single condition against a message.
+     *
+     * Supported operators: contains, not_contains, starts_with, ends_with, equals, not_equals.
+     * All comparisons are case-insensitive.
+     *
+     * @param  array<string, mixed> $cond    Row from `rule_conditions` (field, operator, value).
+     * @param  array<string, mixed> $message Message row.
+     * @return bool
+     */
     private function evaluateCondition(array $cond, array $message): bool {
         $field    = $cond['field'];
         $operator = $cond['operator'];
@@ -81,6 +117,17 @@ class RulesEngine {
         };
     }
 
+    /**
+     * Resolve a condition field name to a string value from the message row.
+     *
+     * Address fields (to, cc) are flattened to a space-separated string of
+     * names and email addresses. Body is taken from the first 10 000 characters
+     * of the stripped HTML, falling back to plain text.
+     *
+     * @param  string               $field   Condition field identifier.
+     * @param  array<string, mixed> $message Message row.
+     * @return string
+     */
     private function getFieldValue(string $field, array $message): string {
         return match($field) {
             'from_address'   => $message['from_address'] ?? '',
@@ -94,6 +141,13 @@ class RulesEngine {
         };
     }
 
+    /**
+     * Flatten an address list (JSON string or decoded array) into a single
+     * searchable string of "name email" pairs.
+     *
+     * @param  array<int, array<string, string>>|string $addrs JSON-encoded or decoded address array.
+     * @return string
+     */
     private function flattenAddresses(array|string $addrs): string {
         if (is_string($addrs)) {
             $addrs = json_decode($addrs, true) ?? [];
@@ -109,6 +163,17 @@ class RulesEngine {
     // Action execution
     // ----------------------------------------------------------------
 
+    /**
+     * Execute a list of rule actions against a message.
+     *
+     * Each action is attempted independently; errors are logged but do not
+     * halt remaining actions.
+     *
+     * @param  array<int, array<string, mixed>> $actions  Rows from `rule_actions`.
+     * @param  array<string, mixed>             $message  Message row.
+     * @param  array<string, mixed>             $account  email_accounts row.
+     * @return string[] Descriptors of actions successfully taken.
+     */
     private function executeActions(array $actions, array $message, array $account): array {
         $taken = [];
 
@@ -196,6 +261,18 @@ class RulesEngine {
         return $taken;
     }
 
+    /**
+     * Send a rule-triggered autoreply to the original sender.
+     *
+     * Guards against replying to no-reply/mailer-daemon addresses and
+     * enforces a one-reply-per-sender-per-account-per-day deduplication
+     * using the `autoreply_sent` table.
+     *
+     * @param  array<string, mixed> $message    Message that triggered the rule.
+     * @param  array<string, mixed> $account    email_accounts row.
+     * @param  string|null          $customBody Optional HTML body override; falls back to a generic message.
+     * @return void
+     */
     private function sendAutoreply(array $message, array $account, ?string $customBody): void {
         $senderEmail = $message['from_address'] ?? '';
         if (!$senderEmail || $senderEmail === $account['email_address']) return;

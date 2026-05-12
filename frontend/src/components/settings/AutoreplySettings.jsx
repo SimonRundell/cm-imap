@@ -1,3 +1,11 @@
+/**
+ * @module components/settings/AutoreplySettings
+ * @fileoverview Settings panel for configuring per-account automatic replies.
+ *
+ * Lets the user pick an account, then toggle the auto-reply on/off, set an
+ * optional date range, edit the subject, and compose the reply body via
+ * TinyMCE. Saves via upsert so create and update share the same action.
+ */
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Editor } from '@tinymce/tinymce-react';
@@ -13,6 +21,11 @@ const TINYMCE_INIT = {
   branding: false, statusbar: false, resize: false,
 };
 
+/**
+ * Auto-reply settings panel. Loads the existing auto-reply record when an
+ * account is selected and persists changes via the upsertAutoreply API.
+ * @returns {React.ReactElement}
+ */
 export default function AutoreplySettings() {
   const qc       = useQueryClient();
   const addToast = useUIStore(s => s.addToast);

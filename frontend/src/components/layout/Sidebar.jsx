@@ -169,7 +169,7 @@ export default function Sidebar() {
     .reduce((s, f) => s + (f.unread_count || 0), 0);
 
   return (
-    <aside className="w-60 shrink-0 bg-surface-800 border-r border-slate-700/50 flex flex-col h-full">
+    <aside className="w-full bg-surface-800 flex flex-col h-full overflow-hidden">
       {/* Compose button */}
       <div className="p-3">
         <button

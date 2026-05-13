@@ -18,7 +18,7 @@ const TINYMCE_INIT = {
   toolbar: 'bold italic | link | code',
   skin: 'oxide-dark', content_css: 'dark',
   content_style: 'body { font-family: system-ui; font-size:13px; color:#e2e8f0; }',
-  branding: false, statusbar: false, resize: false,
+  branding: false, statusbar: false, resize: false, license_key: 'gpl',
 };
 
 /**

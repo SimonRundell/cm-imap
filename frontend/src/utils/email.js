@@ -156,15 +156,18 @@ export function isImageMime(mime) {
 }
 
 /**
- * Strip `<script>` tags from an HTML string before rendering in an iframe.
- * This is a basic defence-in-depth measure; the iframe's sandbox attribute
- * provides the primary security boundary.
+ * Strip all `<script>` markup from an HTML string before rendering in an iframe.
+ * Handles paired blocks, self-closing tags, and unclosed opening tags so that
+ * no script markup survives to trigger the browser's sandbox-blocked warning.
  * @param {string|null} html - Raw HTML string from a message body.
- * @returns {string} HTML with script tags removed.
+ * @returns {string} HTML with all script markup removed.
  */
 export function sanitiseHtml(html) {
-  // Remove script tags
-  return (html || '').replace(/<script[\s\S]*?<\/script>/gi, '');
+  return (html || '')
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, '') // paired blocks
+    .replace(/<script\b[^>]*\/>/gi, '')                     // self-closing
+    .replace(/<script\b[^>]*>/gi, '')                       // unclosed opening tags
+    .replace(/<\/script\s*>/gi, '');                        // stray closing tags
 }
 
 /**

@@ -38,6 +38,7 @@ const TINYMCE_INIT = {
   resize:              false,
   statusbar:           false,
   automatic_uploads:   false,
+  license_key:         'gpl',
 };
 
 /**

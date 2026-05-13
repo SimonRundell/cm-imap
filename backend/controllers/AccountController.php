@@ -170,27 +170,53 @@ class AccountController {
 
         try {
             if ($type === 'smtp') {
-                // Quick SMTP connection test (no send)
-                $enc    = $this->enc;
-                $host   = $account['smtp_host'];
-                $port   = (int)$account['smtp_port'];
-                $encType = $account['smtp_encryption'];
-
-                $context = stream_context_create(['ssl' => ['verify_peer' => false, 'verify_peer_name' => false]]);
-                $proto   = ($encType === 'ssl') ? 'ssl' : 'tcp';
-                $sock    = @stream_socket_client("$proto://$host:$port", $errno, $errstr, 10, STREAM_CLIENT_CONNECT, $context);
-                if (!$sock) throw new RuntimeException("Cannot connect: $errstr");
-                fclose($sock);
-                Response::success(null, 'SMTP connection successful');
+                $smtp = new SMTPClient($account, $this->enc);
+                $smtp->send([
+                    'from'        => ['name' => $account['display_name'], 'email' => $account['email_address']],
+                    'to'          => [['name' => $account['display_name'], 'email' => $account['email_address']]],
+                    'subject'     => 'CM-IMAP SMTP Test',
+                    'body_text'   => 'This is a test message sent by CM-IMAP to verify your SMTP settings.',
+                    'body_html'   => '<p>This is a test message sent by <strong>CM-IMAP</strong> to verify your SMTP settings.</p>',
+                    'cc'          => [],
+                    'bcc'         => [],
+                    'attachments' => [],
+                    'inline_images' => [],
+                ]);
+                Response::success(null, 'SMTP test email sent to ' . $account['email_address']);
             } else {
+                if (!extension_loaded('imap')) {
+                    Response::error('PHP IMAP extension is not enabled. Enable php_imap in php.ini and restart Apache.');
+                }
                 $imap = new IMAPClient($account, $this->enc);
                 $imap->connect('INBOX');
                 $imap->disconnect();
                 Response::success(null, 'IMAP connection successful');
             }
-        } catch (RuntimeException $e) {
+        } catch (\Throwable $e) {
             Response::error('Connection failed: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Return the current sync progress for an account.
+     *
+     * Reads the `sync_progress` JSON written by {@see SyncService} during an
+     * active sync. Returns `{"stage":"idle"}` when no sync is in progress.
+     *
+     * @param  int $id Account primary key.
+     * @return void
+     */
+    public function syncProgress(int $id): void {
+        $user = Middleware::requireAuth();
+        Middleware::requireAccountOwnership($id, $user['sub']);
+        try {
+            $row      = Database::fetchOne('SELECT sync_progress FROM email_accounts WHERE id = ?', [$id]);
+            $progress = $row && $row['sync_progress'] ? json_decode($row['sync_progress'], true) : null;
+        } catch (\Throwable $e) {
+            // Column may not exist yet — degrade gracefully
+            $progress = null;
+        }
+        Response::success($progress ?? ['stage' => 'idle']);
     }
 
     /**
@@ -214,7 +240,7 @@ class AccountController {
             $svc   = new SyncService();
             $stats = $svc->syncAccount($account);
             Response::success($stats, 'Sync complete');
-        } catch (RuntimeException $e) {
+        } catch (\Throwable $e) {
             Response::error('Sync failed: ' . $e->getMessage(), 500);
         }
     }

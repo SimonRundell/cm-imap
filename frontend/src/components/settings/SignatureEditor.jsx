@@ -20,7 +20,7 @@ const TINYMCE_INIT = {
   toolbar: 'bold italic underline | forecolor backcolor | alignleft aligncenter | link image | code',
   skin: 'oxide-dark', content_css: 'dark',
   content_style: 'body { font-family: system-ui, sans-serif; font-size: 13px; color: #e2e8f0; }',
-  branding: false, statusbar: false, resize: false,
+  branding: false, statusbar: false, resize: false, license_key: 'gpl',
 };
 
 /**

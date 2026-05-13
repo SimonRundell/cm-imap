@@ -10,12 +10,14 @@
  * switching to the plain-text alternative. Non-inline attachments are listed
  * as download links at the bottom.
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useMessage, useDeleteMessage, useUpdateMessage, useMoveMessage } from '@/hooks/useMessages';
 import useEmailStore from '@/store/emailStore';
-import { fullDate, formatAddressList, formatAddress, buildReplySubject, buildReplyBody, buildReplyAllTo, sanitiseHtml, formatSize, getAttachmentUrl } from '@/utils/email';
+import { fullDate, formatAddressList, formatAddress, buildReplySubject, buildReplyBody, buildReplyAllTo, sanitiseHtml, formatSize } from '@/utils/email';
+import { downloadAttachment } from '@/api/attachments';
 import useAuthStore from '@/store/authStore';
 import { useAllFolders } from '@/hooks/useAccounts';
+import { useQueryClient } from '@tanstack/react-query';
 
 /**
  * Message reading pane. Derives the selected message ID from emailStore,
@@ -29,10 +31,23 @@ export default function MessagePreview() {
   const clearSelection = useEmailStore(s => s.clearSelection);
   const user           = useAuthStore(s => s.user);
 
+  const qc = useQueryClient();
   const { data: message, isLoading } = useMessage(selectedId);
   const deleteMsg  = useDeleteMessage();
   const updateMsg  = useUpdateMessage();
   const { data: folders = [] } = useAllFolders();
+
+  // The backend marks the message as read on fetch. Update both the folder badge
+  // counts and the messages list cache so the row style reflects is_read=1.
+  useEffect(() => {
+    if (message) {
+      qc.invalidateQueries({ queryKey: ['folders'] });
+      qc.setQueriesData({ queryKey: ['messages'] }, (old) => {
+        if (!old?.messages) return old;
+        return { ...old, messages: old.messages.map(m => m.id === message.id ? { ...m, is_read: 1 } : m) };
+      });
+    }
+  }, [message?.id]);
 
   const [viewMode, setViewMode] = useState('html'); // 'html' | 'text'
   const [showHeaders, setShowHeaders] = useState(false);
@@ -210,19 +225,18 @@ export default function MessagePreview() {
           <p className="text-xs text-slate-500 mb-2 font-medium">ATTACHMENTS</p>
           <div className="flex flex-wrap gap-2">
             {message.attachments.filter(a => !a.is_inline).map(att => (
-              <a
+              <button
                 key={att.id}
-                href={getAttachmentUrl(att.id)}
-                download={att.filename}
+                onClick={() => downloadAttachment(att.id, att.filename)}
                 className="flex items-center gap-2 bg-slate-700/50 hover:bg-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300 hover:text-white transition-colors"
               >
                 <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                   <path strokeLinecap="round" strokeLinejoin="round"
-                    d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                 </svg>
                 <span className="truncate max-w-[200px]">{att.filename}</span>
                 <span className="text-xs text-slate-500">{formatSize(att.size)}</span>
-              </a>
+              </button>
             ))}
           </div>
         </div>

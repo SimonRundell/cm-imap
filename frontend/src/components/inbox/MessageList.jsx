@@ -3,14 +3,30 @@
  * @fileoverview Scrollable, paginated list of messages for the active folder or search.
  *
  * Builds query params from emailStore selection and renders a MessageItem for
- * each result. Includes a manual sync button and simple prev/next pagination.
+ * each result. Includes a manual sync button with live progress toasts and
+ * simple prev/next pagination.
  */
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import MessageItem from './MessageItem';
 import useEmailStore from '@/store/emailStore';
 import { useMessages } from '@/hooks/useMessages';
 import { useQueryClient } from '@tanstack/react-query';
-import { syncAccount as apiSync } from '@/api/accounts';
+import { syncAccount as apiSync, getSyncProgress } from '@/api/accounts';
+import useUIStore from '@/store/uiStore';
+
+/**
+ * Format a sync progress payload into a human-readable toast message.
+ * @param {{stage: string, folder?: string, total?: number, done?: number}} p
+ * @returns {string}
+ */
+function formatProgress(p) {
+  if (p.stage === 'scanning') return `Scanning ${p.folder || ''}…`;
+  if (p.stage === 'fetching') {
+    const pct = p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
+    return `Syncing ${p.folder || ''}: ${p.done} / ${p.total} (${pct}%)`;
+  }
+  return 'Syncing…';
+}
 
 /**
  * Message list panel. Reads the current folder/account/search selection from
@@ -19,17 +35,24 @@ import { syncAccount as apiSync } from '@/api/accounts';
  * @returns {React.ReactElement}
  */
 export default function MessageList() {
-  const [page, setPage] = useState(1);
+  const [page, setPage]             = useState(1);
+  const [unreadOnly, setUnreadOnly] = useState(false);
 
-  const selectedFolderId  = useEmailStore(s => s.selectedFolderId);
-  const selectedAccountId = useEmailStore(s => s.selectedAccountId);
-  const isUnified         = useEmailStore(s => s.isUnifiedInbox);
-  const searchQuery       = useEmailStore(s => s.searchQuery);
-  const selectedMessageId = useEmailStore(s => s.selectedMessageId);
+  const selectedFolderId   = useEmailStore(s => s.selectedFolderId);
+  const selectedAccountId  = useEmailStore(s => s.selectedAccountId);
+  const isUnified          = useEmailStore(s => s.isUnifiedInbox);
+  const searchQuery        = useEmailStore(s => s.searchQuery);
+  const selectedMessageId  = useEmailStore(s => s.selectedMessageId);
   const setSelectedMessage = useEmailStore(s => s.setSelectedMessage);
-  const accounts          = useEmailStore(s => s.accounts);
-  const qc                = useQueryClient();
-  const [syncing, setSyncing] = useState(false);
+  const accounts           = useEmailStore(s => s.accounts);
+  const qc                 = useQueryClient();
+
+  const [syncing, setSyncing]       = useState(false);
+  const addToast    = useUIStore(s => s.addToast);
+  const updateToast = useUIStore(s => s.updateToast);
+  const removeToast = useUIStore(s => s.removeToast);
+  const pollRef     = useRef(null);
+  const toastIdRef  = useRef(null);
 
   const params = {
     page,
@@ -38,39 +61,80 @@ export default function MessageList() {
     ...(selectedFolderId  && { folder_id: selectedFolderId }),
     ...(selectedAccountId && !isUnified && { account_id: selectedAccountId }),
     ...(searchQuery       && { search: searchQuery }),
+    ...(unreadOnly        && { unread: 1 }),
   };
 
+  // Reset to page 1 whenever the folder/account context changes
+  useEffect(() => { setPage(1); }, [selectedFolderId, selectedAccountId, isUnified, searchQuery]);
+
+  // Cleanup polling and toast if the component unmounts mid-sync
+  useEffect(() => () => {
+    clearInterval(pollRef.current);
+    if (toastIdRef.current !== null) removeToast(toastIdRef.current);
+  }, []);
+
   const { data, isLoading, isFetching, refetch } = useMessages(params);
-  const messages  = data?.messages  || [];
-  const total     = data?.total     || 0;
-  const lastPage  = data?.last_page || 1;
+  const messages = data?.messages  || [];
+  const total    = data?.total     || 0;
+  const lastPage = data?.last_page || 1;
 
   const handleSync = async () => {
     setSyncing(true);
+
+    // Persistent toast (duration=0 means no auto-dismiss)
+    const tid = addToast('Connecting to mail server…', 'info', 0);
+    toastIdRef.current = tid;
+
+    // Which account to poll progress from (first one if syncing all)
+    const primaryId = selectedAccountId || accounts[0]?.id;
+
+    if (primaryId) {
+      const poll = async () => {
+        try {
+          const p = await getSyncProgress(primaryId);
+          if (p && p.stage !== 'idle') {
+            updateToast(tid, formatProgress(p));
+          }
+        } catch { /* ignore poll errors */ }
+      };
+      poll(); // fire immediately, don't wait for first interval tick
+      pollRef.current = setInterval(poll, 500);
+    }
+
     try {
       if (selectedAccountId) {
         await apiSync(selectedAccountId);
       } else {
-        // Sync all accounts
         await Promise.all(accounts.map(a => apiSync(a.id)));
       }
       await refetch();
+      updateToast(tid, 'Sync complete');
+      setTimeout(() => { removeToast(tid); toastIdRef.current = null; }, 3000);
+    } catch {
+      updateToast(tid, 'Sync failed — check your connection settings');
+      setTimeout(() => { removeToast(tid); toastIdRef.current = null; }, 5000);
     } finally {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
       setSyncing(false);
     }
   };
 
   const handleSelectMessage = useCallback((msg) => {
     setSelectedMessage(msg.id);
-  }, [setSelectedMessage]);
+    // Optimistically mark as read in the list cache so the row style updates immediately
+    if (!msg.is_read) {
+      qc.setQueriesData({ queryKey: ['messages'] }, (old) => {
+        if (!old?.messages) return old;
+        return { ...old, messages: old.messages.map(m => m.id === msg.id ? { ...m, is_read: 1 } : m) };
+      });
+    }
+  }, [setSelectedMessage, qc]);
 
   // Title
   let title = 'All Inboxes';
   if (searchQuery) title = `Search: "${searchQuery}"`;
-  else if (selectedFolderId) {
-    const folders = data?.messages?.[0] ? [] : [];
-    title = 'Folder';
-  }
+  else if (selectedFolderId) title = 'Folder';
 
   return (
     <div className="flex flex-col h-full bg-surface-900 border-r border-slate-700/50">
@@ -89,8 +153,20 @@ export default function MessageList() {
         </div>
 
         <div className="flex items-center gap-1">
-          {/* Filter: unread */}
-          {/* Refresh */}
+          {/* Filter: unread only */}
+          <button
+            onClick={() => { setUnreadOnly(v => !v); setPage(1); }}
+            title={unreadOnly ? 'Showing unread only — click to show all' : 'Show unread only'}
+            className={`p-1.5 rounded-lg transition-colors ${unreadOnly
+              ? 'bg-blue-600 text-white'
+              : 'text-slate-400 hover:text-white hover:bg-slate-700'}`}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round"
+                d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+          </button>
+          {/* Sync */}
           <button
             onClick={handleSync}
             disabled={syncing}

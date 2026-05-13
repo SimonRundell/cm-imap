@@ -159,15 +159,15 @@ class MessageController {
             [$id]
         );
 
-        // Mark as read on open
+        // Mark as read on open and push \Seen flag back to IMAP server
         if (!$message['is_read']) {
             Database::query('UPDATE messages SET is_read = 1 WHERE id = ?', [$id]);
             $message['is_read'] = 1;
-            // Update unread count on folder
             Database::query(
                 'UPDATE folders SET unread_count = GREATEST(0, unread_count - 1) WHERE id = ?',
                 [$message['folder_id']]
             );
+            $this->pushFlagToImap($message, 'seen', true);
         }
 
         Response::success($message);
@@ -207,13 +207,19 @@ class MessageController {
             $params[] = $id;
             Database::query('UPDATE messages SET ' . implode(', ', $fields) . ' WHERE id = ?', $params);
 
-            // Sync unread count on folder
+            // Sync unread count and push \Seen flag back to IMAP server
             if (array_key_exists('is_read', $body)) {
                 $delta = $body['is_read'] ? -1 : 1;
                 Database::query(
                     'UPDATE folders SET unread_count = GREATEST(0, unread_count + ?) WHERE id = ?',
                     [$delta, $message['folder_id']]
                 );
+                $this->pushFlagToImap($message, 'seen', (bool)$body['is_read']);
+            }
+
+            // Push \Flagged flag back to IMAP server (is_starred is local-only)
+            if (array_key_exists('is_flagged', $body)) {
+                $this->pushFlagToImap($message, 'flagged', (bool)$body['is_flagged']);
             }
         }
 
@@ -481,6 +487,49 @@ class MessageController {
      * @param  int $userId Authenticated user ID.
      * @return array<string, mixed> The messages row (with `user_id` from the join).
      */
+    /**
+     * Push a flag change back to the IMAP server.
+     *
+     * Failures are logged but never bubble up to the HTTP response — a network
+     * hiccup should not prevent the local DB update from succeeding.
+     *
+     * Supported flags: 'seen' (\Seen), 'flagged' (\Flagged).
+     * 'is_starred' is intentionally excluded as it has no standard IMAP mapping.
+     *
+     * @param  array<string, mixed> $message Message row (needs account_id, folder_id, uid).
+     * @param  string               $flag    'seen' or 'flagged'.
+     * @param  bool                 $value   True to set the flag, false to clear it.
+     * @return void
+     */
+    private function pushFlagToImap(array $message, string $flag, bool $value): void {
+        try {
+            $account = Database::fetchOne(
+                'SELECT * FROM email_accounts WHERE id = ?',
+                [$message['account_id']]
+            );
+            $folder = Database::fetchOne(
+                'SELECT * FROM folders WHERE id = ?',
+                [$message['folder_id']]
+            );
+            if (!$account || !$folder) return;
+
+            $enc  = new Encryption();
+            $imap = new IMAPClient($account, $enc);
+            $imap->connect($folder['full_path']);
+
+            $uid = (int)$message['uid'];
+            match ($flag) {
+                'seen'    => $value ? $imap->markRead($uid)     : $imap->markUnread($uid),
+                'flagged' => $value ? $imap->markFlagged($uid)  : $imap->markUnflagged($uid),
+                default   => null,
+            };
+
+            $imap->disconnect();
+        } catch (\Throwable $e) {
+            error_log("IMAP flag write-back failed (flag=$flag, msg={$message['id']}): " . $e->getMessage());
+        }
+    }
+
     private function getMessage(int $id, int $userId): array {
         $msg = Database::fetchOne(
             'SELECT m.*, a.user_id FROM messages m

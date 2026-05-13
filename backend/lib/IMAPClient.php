@@ -52,11 +52,12 @@ class IMAPClient {
      * @return string e.g. `{mail.example.com:993/imap/ssl/novalidate-cert}INBOX`
      */
     private function buildMailboxStr(string $folder = 'INBOX'): string {
+        // PHP c-client flags: /ssl = implicit TLS (port 993), /tls = STARTTLS (port 143)
+        // There is no /starttls flag — both 'tls' and 'starttls' map to /tls.
         $flags = match($this->encryption) {
-            'ssl'      => '/imap/ssl/novalidate-cert',
-            'tls'      => '/imap/tls/novalidate-cert',
-            'starttls' => '/imap/starttls/novalidate-cert',
-            default    => '/imap/notls',
+            'ssl'               => '/imap/ssl/novalidate-cert',
+            'tls', 'starttls'   => '/imap/tls/novalidate-cert',
+            default             => '/imap/notls',
         };
         return "{{$this->host}:{$this->port}{$flags}}{$folder}";
     }
@@ -164,25 +165,36 @@ class IMAPClient {
      * @return int[]
      */
     public function getNewUids(int $sinceUid): array {
-        if ($sinceUid < 1) {
-            // Fetch all
-            $uids = imap_search($this->conn, 'ALL', SE_UID);
-        } else {
-            $uids = imap_search($this->conn, "UID {$sinceUid}:*", SE_UID);
-        }
-        if (!$uids) return [];
-        // Filter — imap search with UID range sometimes returns sinceUid itself
-        return array_values(array_filter($uids, fn($uid) => $uid > $sinceUid));
+        return array_values(array_filter(
+            $this->getAllUids(),
+            fn($uid) => $uid > $sinceUid
+        ));
     }
 
     /**
      * Return all UIDs in the current folder (for full sync or validation).
      *
+     * Fetches in chunks of 500 sequence numbers to avoid silent failures
+     * on Windows c-client when the mailbox is large.
+     *
      * @return int[]
      */
     public function getAllUids(): array {
-        $uids = imap_search($this->conn, 'ALL', SE_UID);
-        return $uids ?: [];
+        $count = imap_num_msg($this->conn);
+        error_log("getAllUids: folder={$this->currentMailbox} imap_num_msg=$count");
+        if (!$count) return [];
+        $uids      = [];
+        $chunkSize = 500;
+        for ($start = 1; $start <= $count; $start += $chunkSize) {
+            $end      = min($start + $chunkSize - 1, $count);
+            $overview = @imap_fetch_overview($this->conn, "$start:$end") ?: [];
+            error_log("getAllUids: chunk $start:$end returned " . count($overview) . " rows, last_error=" . (imap_last_error() ?: 'none'));
+            foreach ($overview as $o) {
+                $uids[] = (int)$o->uid;
+            }
+        }
+        error_log("getAllUids: total UIDs returned=" . count($uids));
+        return $uids;
     }
 
     /**
@@ -262,8 +274,20 @@ class IMAPClient {
      * @return int[]
      */
     public function getDeletedUids(): array {
-        $uids = imap_search($this->conn, 'DELETED', SE_UID);
-        return $uids ?: [];
+        $count = imap_num_msg($this->conn);
+        if (!$count) return [];
+        $deleted   = [];
+        $chunkSize = 500;
+        for ($start = 1; $start <= $count; $start += $chunkSize) {
+            $end      = min($start + $chunkSize - 1, $count);
+            $overview = @imap_fetch_overview($this->conn, "$start:$end") ?: [];
+            foreach ($overview as $o) {
+                if (!empty($o->deleted)) {
+                    $deleted[] = (int)$o->uid;
+                }
+            }
+        }
+        return $deleted;
     }
 
     /**

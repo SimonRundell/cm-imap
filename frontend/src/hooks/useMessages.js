@@ -51,9 +51,26 @@ export function useUpdateMessage() {
 
   return useMutation({
     mutationFn: ({ id, data }) => messagesApi.updateMessage(id, data),
-    onSuccess: (_, { id }) => {
+
+    // Apply the change instantly in every cached messages page so the row
+    // updates without waiting for a round-trip refetch.
+    onMutate: ({ id, data }) => {
+      qc.setQueriesData({ queryKey: ['messages'] }, (old) => {
+        if (!old?.messages) return old;
+        return {
+          ...old,
+          messages: old.messages.map(m => m.id === id ? { ...m, ...data } : m),
+        };
+      });
+      qc.setQueryData(['message', id], (old) => old ? { ...old, ...data } : old);
+    },
+
+    onSuccess: (_, { id, data }) => {
       qc.invalidateQueries({ queryKey: ['message', id] });
       qc.invalidateQueries({ queryKey: ['messages'] });
+      if ('is_read' in data) {
+        qc.invalidateQueries({ queryKey: ['folders'] });
+      }
     },
   });
 }

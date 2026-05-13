@@ -107,8 +107,9 @@ try {
     route('POST',   '/accounts',                fn()    => (new AccountController)->store());
     route('PUT',    '/accounts/:id',            fn($p)  => (new AccountController)->update($p['id']));
     route('DELETE', '/accounts/:id',            fn($p)  => (new AccountController)->destroy($p['id']));
-    route('POST',   '/accounts/:id/sync',       fn($p)  => (new AccountController)->sync($p['id']));
-    route('POST',   '/accounts/:id/test',       fn($p)  => (new AccountController)->testConnection($p['id']));
+    route('GET',    '/accounts/:id/sync-progress', fn($p) => (new AccountController)->syncProgress($p['id']));
+    route('POST',   '/accounts/:id/sync',          fn($p) => (new AccountController)->sync($p['id']));
+    route('POST',   '/accounts/:id/test',          fn($p) => (new AccountController)->testConnection($p['id']));
 
     // Folders
     route('GET',  '/folders',          fn()   => (new FolderController)->index());

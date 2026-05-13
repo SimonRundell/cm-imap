@@ -45,6 +45,15 @@ export const syncAccount = (id) =>
   client.post(`/accounts/${id}/sync`).then(r => r.data.data);
 
 /**
+ * Poll the live sync progress for an account being actively synced.
+ * Returns `{stage: 'idle'}` when no sync is running.
+ * @param {number} id - Account ID.
+ * @returns {Promise<{stage: string, folder?: string, total?: number, done?: number}>}
+ */
+export const getSyncProgress = (id) =>
+  client.get(`/accounts/${id}/sync-progress`).then(r => r.data.data);
+
+/**
  * Test the IMAP or SMTP connection for an account without saving anything.
  * @param {number} id - Account ID.
  * @param {'imap'|'smtp'} [type='imap'] - Which connection to test.

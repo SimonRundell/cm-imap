@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS email_accounts (
     is_active               TINYINT(1) NOT NULL DEFAULT 1,
     last_sync               TIMESTAMP NULL,
     sync_error              TEXT NULL,
+    sync_progress           TEXT DEFAULT NULL,
     created_at              TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at              TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,

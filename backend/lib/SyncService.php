@@ -15,6 +15,9 @@
  * @package CM-IMAP\Lib
  */
 class SyncService {
+    /** @var int Maximum messages fetched per folder per sync run to avoid timeouts on large mailboxes */
+    private const BATCH_LIMIT = 500;
+
     /** @var Encryption Encryption service used to decrypt IMAP/SMTP credentials */
     private Encryption  $enc;
 
@@ -51,6 +54,8 @@ class SyncService {
      */
     public function syncAccount(array $account): array {
         $stats = ['folders' => 0, 'new_messages' => 0, 'errors' => []];
+
+        set_time_limit(0);
 
         $imap = new IMAPClient($account, $this->enc);
         try {
@@ -89,6 +94,7 @@ class SyncService {
                 'UPDATE email_accounts SET last_sync = NOW(), sync_error = NULL WHERE id = ?',
                 [$account['id']]
             );
+            $this->setProgress($account['id'], null);
 
             // Process autoreplies for this account
             $this->processAutoreplies($account);
@@ -179,29 +185,96 @@ class SyncService {
             $folder['uidnext'] = 1;
         }
 
-        // Fetch UIDs newer than our last known UID
-        $sinceUid = max(0, (int)($folder['uidnext'] ?? 1) - 1);
-        $newUids  = $imap->getNewUids($sinceUid);
+        $storedUidnext = (int)($folder['uidnext'] ?? 1);
 
-        foreach ($newUids as $uid) {
+        if ($storedUidnext <= 1) {
+            // Catch-up mode: server UIDs minus DB UIDs = the genuinely missing set.
+            // This is O(server_count) IMAP overhead but ensures every run fetches
+            // BATCH_LIMIT *new* messages rather than re-scanning already-synced ones.
+            $this->setProgress($account['id'], ['stage' => 'scanning', 'folder' => $folder['full_path']]);
+            $serverUids = $imap->getAllUids();
+            $dbRows     = Database::fetchAll(
+                'SELECT uid FROM messages WHERE folder_id = ?',
+                [$folder['id']]
+            );
+            $dbUidSet   = array_flip(array_column($dbRows, 'uid'));
+            $missing = array_values(array_filter($serverUids, fn($u) => !isset($dbUidSet[$u])));
+            // Sort descending so the NEWEST messages (highest UIDs) are fetched first.
+            rsort($missing);
+            error_log("syncFolder catch-up: folder={$folder['full_path']} server=" . count($serverUids) . " db=" . count($dbRows) . " missing=" . count($missing) . " newest_uid=" . ($missing[0] ?? 'none') . " oldest_uid=" . (end($missing) ?: 'none'));
+
+            $hasMore  = count($missing) > self::BATCH_LIMIT;
+            $newUids  = array_slice($missing, 0, self::BATCH_LIMIT);
+
+            // Stay in catch-up mode until all missing messages are fetched.
+            $nextUidnext = $hasMore ? 1 : $status['uidnext'];
+        } else {
+            // Incremental mode: only look at UIDs the server has assigned since last sync.
+            $sinceUid = $storedUidnext - 1;
+            $pending  = $imap->getNewUids($sinceUid);
+            error_log("syncFolder incremental: folder={$folder['full_path']} sinceUid=$sinceUid pending=" . count($pending));
+
+            $hasMore     = count($pending) > self::BATCH_LIMIT;
+            $newUids     = array_slice($pending, 0, self::BATCH_LIMIT);
+            $nextUidnext = $hasMore ? (max($newUids) + 1) : $status['uidnext'];
+        }
+
+        $batchTotal = count($newUids);
+        error_log("syncFolder batch start: folder={$folder['full_path']} fetching " . count($newUids) . " UIDs, first=" . ($newUids[0] ?? '-') . " last=" . (end($newUids) ?: '-'));
+        $this->setProgress($account['id'], [
+            'stage'  => 'fetching',
+            'folder' => $folder['full_path'],
+            'total'  => $batchTotal,
+            'done'   => 0,
+        ]);
+
+        $countEmpty   = 0;
+        $countSkipped = 0;
+        $countStored  = 0;
+
+        foreach ($newUids as $i => $uid) {
             try {
-                $exists = Database::fetchScalar(
-                    'SELECT id FROM messages WHERE account_id = ? AND folder_id = ? AND uid = ?',
-                    [$account['id'], $folder['id'], $uid]
-                );
-                if ($exists) continue;
-
                 $msgData = $imap->fetchMessage($uid);
-                if (empty($msgData)) continue;
+                if (empty($msgData)) {
+                    $countEmpty++;
+                    error_log("syncFolder uid=$uid EMPTY — fetchMessage returned no data");
+                    continue;
+                }
+
+                error_log("syncFolder uid=$uid fetched: subject=\"" . mb_substr($msgData['subject'] ?? '', 0, 60) . "\" date={$msgData['date']}");
 
                 $messageId = $this->storeMessage($msgData, $account, $folder, $imap);
                 if ($messageId) {
+                    $countStored++;
                     $newCount++;
+                    error_log("syncFolder uid=$uid STORED as message_id=$messageId");
+                } else {
+                    $countSkipped++;
+                    error_log("syncFolder uid=$uid SKIPPED (INSERT IGNORE — already exists in DB)");
                 }
             } catch (Throwable $e) {
-                error_log("Sync message uid=$uid: " . $e->getMessage());
+                error_log("syncFolder uid=$uid EXCEPTION: " . $e->getMessage());
+            }
+
+            if (($i + 1) % 25 === 0 || ($i + 1) === $batchTotal) {
+                $this->setProgress($account['id'], [
+                    'stage'  => 'fetching',
+                    'folder' => $folder['full_path'],
+                    'total'  => $batchTotal,
+                    'done'   => $i + 1,
+                ]);
             }
         }
+
+        error_log("syncFolder batch done: folder={$folder['full_path']} attempted=$batchTotal empty=$countEmpty skipped=$countSkipped stored=$countStored");
+
+        // Derive unread count from local DB so badge and filter always agree.
+        // Using the IMAP server's unseen count here would desync the two whenever
+        // messages are marked read locally without pushing \Seen back to the server.
+        $dbUnread = (int)Database::fetchScalar(
+            'SELECT COUNT(*) FROM messages WHERE folder_id = ? AND is_read = 0 AND is_deleted = 0',
+            [$folder['id']]
+        );
 
         // Update folder stats
         Database::query(
@@ -210,14 +283,36 @@ class SyncService {
              WHERE id = ?',
             [
                 $remoteUidvalidity,
-                $status['uidnext'],
+                $nextUidnext,
                 $status['messages'],
-                $status['unseen'],
+                $dbUnread,
                 $folder['id'],
             ]
         );
 
         return $newCount;
+    }
+
+    // ----------------------------------------------------------------
+    // Progress reporting
+    // ----------------------------------------------------------------
+
+    /**
+     * Write live sync progress to the account row so the frontend can poll it.
+     *
+     * @param  int                  $accountId email_accounts primary key.
+     * @param  array<string, mixed> $data      Progress payload (stage, folder, total, done).
+     * @return void
+     */
+    private function setProgress(int $accountId, ?array $data): void {
+        try {
+            Database::query(
+                'UPDATE email_accounts SET sync_progress = ? WHERE id = ?',
+                [$data !== null ? json_encode($data) : null, $accountId]
+            );
+        } catch (\Throwable $e) {
+            // Progress reporting is non-critical — never abort a sync over this
+        }
     }
 
     // ----------------------------------------------------------------
@@ -245,7 +340,7 @@ class SyncService {
         $bccJson = json_encode($msg['bcc_addresses'] ?? []);
 
         Database::query(
-            'INSERT INTO messages
+            'INSERT IGNORE INTO messages
              (account_id, folder_id, thread_id, uid, message_id, in_reply_to, references_header,
               subject, from_address, from_name, to_addresses, cc_addresses, bcc_addresses, reply_to,
               date, body_text, body_html, is_read, is_flagged, has_attachments, size, priority)
@@ -265,6 +360,7 @@ class SyncService {
         );
 
         $messageId = (int)Database::lastInsertId();
+        if (!$messageId) return null; // already existed (concurrent sync or race condition)
 
         // Store attachments
         if (!empty($msg['attachments'])) {
